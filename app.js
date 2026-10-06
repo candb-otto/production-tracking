@@ -25,7 +25,7 @@
   function toast(msg, kind) {
     var d = document.createElement('div');
     d.className = 'toast ' + (kind || '');
-    d.textContent = msg;
+    d.textContent = dtext(msg);
     $('#toasts').appendChild(d);
     setTimeout(function () { d.remove(); }, 3800);
   }
@@ -34,7 +34,7 @@
   /* ---------- API ---------- */
   var API_URL = 'https://production-api.candb-otto.workers.dev';
   // reads may be retried silently; writes are sent once (a retry could save an entry twice)
-  var READ = /(List|Report|Info|Check|Detail|Home|Defs|Capacity|Efficiency|Dash|View|Search|Balance|Summary)$|^(me|forecastReport|capEffDetail)$/;
+  var READ = /(List|Report|Info|Check|Detail|Home|Defs|Capacity|Efficiency|Dash|View|Search|Balance|Summary|Data)$|^(me|forecastReport|capEffDetail)$/;
   function post_(body, tries) {
     return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (res) { return res.json(); })
@@ -46,17 +46,17 @@
         throw e;
       });
   }
-  function api(action, payload) {
-    loading(true);
+  function api(action, payload, quiet) {
+    if (!quiet) loading(true);
     var body = { action: action, token: S.token, payload: withRange(action, payload) };
     return post_(body, READ.test(action) ? 3 : 0).then(function (r) {
-      loading(false);
+      if (!quiet) loading(false);
       if (r && r.ok) return r.data;
       var err = new Error((r && r.error) || 'Request failed');
       err.code = r && r.code;
       if (err.code === 'AUTH' && S.token) endSession('Your session has expired. Please sign in again.');
       throw err;
-    }, function () { loading(false); throw new Error('Cannot reach the server. Check your internet and try again.'); });
+    }, function () { if (!quiet) loading(false); throw new Error('Cannot reach the server. Check your internet and try again.'); });
   }
   function withRange(action, payload) {
     payload = payload || {};
@@ -92,7 +92,7 @@
 
   /* ---------- session ---------- */
   function endSession(msg) {
-    S.token = null; S.user = null; S.menu = [];
+    S.token = null; S.user = null; S.menu = []; clearInterval(NOTIF.timer); NOTIF.open = false; S.rp = null; S.rr = null;
     store('pt_token', null);
     document.body.classList.remove('nav-open');
     renderLogin(msg);
@@ -107,12 +107,13 @@
   function renderLogin(msg) {
     $('#app').innerHTML =
       '<div class="login-wrap"><form class="login" id="lf" autocomplete="on">' +
+      logoImg(LOGO_CLIENT, 'lg-client', 'Company logo') +
       '<div class="brand"><div class="logo">PT</div><h1>Production Tracking</h1></div>' +
       '<p class="cellsub">Sign in with your employee code</p>' +
       '<label for="lc">Employee code</label><input id="lc" name="username" autocomplete="username" autocapitalize="off" required>' +
       '<label for="lp">Password</label><input id="lp" name="password" type="password" autocomplete="current-password" required>' +
       '<div class="err" id="le" ' + (msg ? '' : 'hidden') + '>' + esc(msg || '') + '</div>' +
-      '<button class="btn block" type="submit">Sign in</button></form></div>';
+      '<button class="btn block" type="submit">Sign in</button>' + poweredBy() + '</form></div>';
     $('#lf').addEventListener('submit', function (ev) {
       ev.preventDefault();
       var code = $('#lc').value, pw = $('#lp').value;
@@ -136,11 +137,13 @@
     }).join('');
     try { document.body.classList.toggle('side-off', localStorage.getItem('pt_side') === 'off'); } catch (e) { /* ignore */ }
     $('#app').innerHTML =
-      '<header class="top"><button class="burger" id="bg" aria-label="Menu">&#9776;</button>' +
+      '<header class="top"><button class="burger" id="bg" aria-label="Menu">&#9776;</button>' + logoImg(LOGO_CLIENT, 'lg-top', 'Company logo') +
       '<div class="title">Production Tracking</div><div class="chip">' + esc(S.user.name) + ' &middot; ' + esc(ROLE[S.user.role] || S.user.role) + '</div>' +
+      '<button class="bell" id="bell" type="button" aria-label="Notifications"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="nb" hidden>0</span></button>' +
       (S.user.role === 'ADMIN' ? '<button class="btn sm ghost" id="rl" title="Re-read the Google Sheet after editing it by hand">Reload data</button>' : '') +
       '<button class="btn sm ghost" id="lo">Sign out</button></header>' +
-      '<div class="shell"><nav class="side" id="sd">' + nav + '</nav><main class="main" id="view"></main></div><div class="scrim" id="sc"></div>';
+      '<div class="shell"><nav class="side" id="sd">' + nav + poweredBy('side-p') + '</nav><main class="main" id="view"></main></div><div class="scrim" id="sc"></div><div class="npanel" id="np" hidden></div>';
+    initBell();
     $('#bg').onclick = function () {
       if (window.matchMedia('(max-width:820px)').matches) { document.body.classList.toggle('nav-open'); return; }
       var off = document.body.classList.toggle('side-off');
@@ -187,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, users: viewUsers, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dashboard: viewDashboard, reports: viewReports, users: viewUsers, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     v($('#view'));
   }
 
@@ -281,6 +284,215 @@
     }
     arm();
   })();
+
+  /* ---------- Revision E: logos, DD-MMM-YYYY date boxes, Reports, notification bell ---------- */
+  var LOGO_CLIENT = 'assets/client-logo.png', LOGO_POWER = 'assets/powered-by.png';
+  function logoImg(src, cls, alt, hideParent) {
+    return '<img class="' + cls + '" src="' + src + '" alt="' + esc(alt) + '" onerror="' + (hideParent ? 'this.parentNode.style.display=\'none\'' : 'this.style.display=\'none\'') + '">';
+  }
+  function poweredBy(extra) { return '<div class="powered ' + (extra || '') + '"><span>Powered by</span>' + logoImg(LOGO_POWER, 'lg-pw', 'Powered by', true) + '</div>'; }
+  /* any yyyy-mm-dd inside a sentence from the server -> dd-MMM-yyyy */
+  function dtext(s) { return String(s == null ? '' : s).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, function (m) { return dfmt(m); }); }
+
+  /* a read-only text box in front of every date input shows 06-Nov-2026; the real input stays behind it and keeps the yyyy-mm-dd value the code uses */
+  var VALD = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  function wrapDate(inp) {
+    if (inp._dw || inp.type !== 'date' || !inp.parentNode) return;
+    inp._dw = 1;
+    var blk = getComputedStyle(inp).display === 'block' || /^(modal|login)/.test(inp.parentNode.className || '') || !!inp.closest('.modal, form.login');
+    var wrap = document.createElement('span'), box = document.createElement('input');
+    wrap.className = 'dwrap' + (blk ? ' blk' : '');
+    box.type = 'text'; box.readOnly = true; box.className = 'dbox'; box.placeholder = 'DD-MMM-YYYY';
+    box.setAttribute('autocomplete', 'off');
+    if (inp.title) box.title = inp.title;
+    inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(box); wrap.appendChild(inp);
+    inp.className = (inp.className ? inp.className + ' ' : '') + 'dnat'; inp.tabIndex = -1;
+    function show() { box.value = inp.value ? dfmt(inp.value) : ''; }
+    function state() { wrap.hidden = inp.hidden; box.disabled = inp.disabled; box.required = inp.required; }
+    Object.defineProperty(inp, 'value', { configurable: true, get: function () { return VALD.get.call(inp); }, set: function (v) { VALD.set.call(inp, v); show(); } });
+    function open() { if (inp.disabled) return; try { inp.showPicker(); } catch (e) { try { inp.focus(); inp.click(); } catch (e2) { /* ignore */ } } }
+    box.addEventListener('click', open);
+    box.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); open(); } else if ((e.key === 'Backspace' || e.key === 'Delete') && !inp.required) { inp.value = ''; inp.dispatchEvent(new Event('change', { bubbles: true })); } });
+    inp.addEventListener('input', show); inp.addEventListener('change', show);
+    inp.addEventListener('focus', function () { box.focus(); });
+    new MutationObserver(state).observe(inp, { attributes: true, attributeFilter: ['hidden', 'disabled', 'required'] });
+    show(); state();
+  }
+  function wrapDates() { Array.prototype.forEach.call(document.querySelectorAll('input[type=date]'), wrapDate); }
+  (function () {
+    var pend = false;
+    new MutationObserver(function () { if (!pend) { pend = true; setTimeout(function () { pend = false; try { wrapDates(); } catch (e) { /* ignore */ } }, 15); } })
+      .observe(document.body, { childList: true, subtree: true });
+  })();
+
+  /* ---------- notification bell ---------- */
+  var NOTIF = { items: [], count: 0, open: false, timer: null };
+  var NSEV = { LATE: 'bad', AT_RISK: 'warn', WARN: 'warn', INFO: 'info' };
+  function loadNotifs() {
+    if (!S.token) return Promise.resolve();
+    return api('notifList', {}, true).then(function (r) { NOTIF.items = r.items || []; NOTIF.count = r.count || 0; paintBell(); }).catch(function () { /* the bell is optional: stay quiet */ });
+  }
+  function paintBell() {
+    var b = document.querySelector('#bell .nb');
+    if (b) { b.textContent = NOTIF.count > 99 ? '99+' : String(NOTIF.count); b.hidden = !NOTIF.count; }
+    var bt = $('#bell'); if (bt) bt.setAttribute('aria-label', 'Notifications' + (NOTIF.count ? ' (' + NOTIF.count + ' new)' : ''));
+    if (NOTIF.open) paintNotifPanel();
+  }
+  function paintNotifPanel() {
+    var p = $('#np'); if (!p) return;
+    p.innerHTML = '<div class="nph"><b>Notifications</b>' + (NOTIF.count ? '<span class="cellsub">' + NOTIF.count + '</span>' : '') +
+      '<button class="btn sm ghost" id="nclr"' + (NOTIF.count ? '' : ' disabled') + '>Clear all</button></div>' +
+      '<div class="npl">' + (NOTIF.items.length ? NOTIF.items.map(function (n, i) {
+        return '<button class="ni ' + (NSEV[n.sev] || '') + '" data-i="' + i + '"><span class="nd"></span><span class="nt"><b>' + esc(n.title) + '</b><span>' + esc(dtext(n.text)) + '</span>' +
+          (n.when ? '<em>' + esc(dfmt(n.when)) + '</em>' : '') + '</span></button>';
+      }).join('') : '<div class="empty">You are all caught up.</div>') + '</div>';
+  }
+  function toggleNotif(on) {
+    NOTIF.open = on === undefined ? !NOTIF.open : on;
+    var p = $('#np'); if (!p) return;
+    p.hidden = !NOTIF.open;
+    if (NOTIF.open) { paintNotifPanel(); loadNotifs(); }
+  }
+  function initBell() {
+    var bt = $('#bell'), p = $('#np'); if (!bt || !p) return;
+    bt.onclick = function (e) { e.stopPropagation(); toggleNotif(); };
+    p.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var clr = e.target.closest ? e.target.closest('#nclr') : null;
+      if (clr) { api('notifClear', {}, true).then(function () { NOTIF.items = []; NOTIF.count = 0; paintBell(); }).catch(fail); return; }
+      var it = e.target.closest ? e.target.closest('.ni') : null;
+      if (it) { var n = NOTIF.items[Number(it.getAttribute('data-i'))]; toggleNotif(false); if (n && n.go) go(n.go); }
+    });
+    if (!document._nbind) { document._nbind = 1; document.addEventListener('click', function () { if (NOTIF.open) toggleNotif(false); }); }
+    clearInterval(NOTIF.timer); NOTIF.timer = setInterval(loadNotifs, 180000);
+    NOTIF.items = []; NOTIF.count = 0; loadNotifs();
+  }
+
+  /* ---------- Reports ---------- */
+  var CHART = '#2a78d6';
+  function dAgo(n) { var t = new Date(todayStr() + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - n); return t.toISOString().slice(0, 10); }
+  function fmtK(n) { var a = Math.abs(n); return a >= 1e6 ? +(n / 1e6).toFixed(1) + 'M' : a >= 1e3 ? +(n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'K' : String(n); }
+  function bucketLabel(k, by, full) {
+    if (by === 'month') return MON[Number(k.slice(5, 7)) - 1] + '-' + k.slice(0, 4);
+    var d = dfmt(k); return full ? (by === 'week' ? 'Week of ' + d : d) : d.slice(0, 6);
+  }
+  function barSvg(data, by, what) {
+    if (!data.length) return '<div class="empty">No entries for this selection.</div>';
+    var W = 480, H = 210, L = 40, R = 8, T = 12, B = 30, max = 0, i;
+    data.forEach(function (x) { if (x.v > max) max = x.v; });
+    var raw = (max || 1) / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; }).filter(function (s) { return s >= raw; })[0];
+    var top = step * 4, n = data.length, cw = (W - L - R) / n, bw = Math.max(2, Math.min(34, cw - Math.min(4, cw * 0.25))), ph = H - T - B;
+    var g = '';
+    for (i = 0; i <= 4; i++) {
+      var y = T + ph - (i * step / top) * ph;
+      g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '" class="gl' + (i ? '' : ' base') + '"/><text x="' + (L - 6) + '" y="' + (y + 4) + '" text-anchor="end" class="ax">' + fmtK(i * step) + '</text>';
+    }
+    var every = Math.ceil(n / 8);
+    data.forEach(function (x, j) {
+      var cx = L + cw * j + cw / 2, h = Math.max(0, (x.v / top) * ph), bx = cx - bw / 2, by0 = T + ph - h, r = Math.min(4, bw / 2, h);
+      if (x.v > 0) g += '<path d="M' + bx + ',' + (T + ph) + ' L' + bx + ',' + (by0 + r) + ' Q' + bx + ',' + by0 + ' ' + (bx + r) + ',' + by0 + ' L' + (bx + bw - r) + ',' + by0 + ' Q' + (bx + bw) + ',' + by0 + ' ' + (bx + bw) + ',' + (by0 + r) + ' L' + (bx + bw) + ',' + (T + ph) + ' Z" fill="' + CHART + '"/>';
+      g += '<rect x="' + (cx - cw / 2) + '" y="' + T + '" width="' + cw + '" height="' + ph + '" fill="transparent" data-tip="' + esc(bucketLabel(x.k, by, true) + ': ' + fmtNum(x.v) + (what ? ' ' + what : '')) + '"/>';
+      if (j % every === 0) g += '<text x="' + cx + '" y="' + (H - 10) + '" text-anchor="middle" class="ax">' + esc(bucketLabel(x.k, by)) + '</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="chart" role="img" aria-label="Bar chart">' + g + '</svg>';
+  }
+  function hbars(items, unit) {
+    items = items.filter(function (x) { return x.v > 0; });
+    if (!items.length) return '<div class="empty">No entries for this selection.</div>';
+    var max = items[0].v;
+    items.forEach(function (x) { if (x.v > max) max = x.v; });
+    return '<div class="hb">' + items.map(function (x) {
+      return '<div class="hbr"><div class="hbl" title="' + esc(x.n) + '">' + esc(x.n) + '</div><div class="hbt"><i style="width:' + Math.max(1, Math.round(x.v / max * 100)) + '%"></i></div><div class="hbv">' + fmtNum(x.v) + (unit ? ' <small>' + esc(unit) + '</small>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function kpiCards(list) {
+    return '<div class="rk">' + list.map(function (k) {
+      return '<div class="rkc"><div class="rkl">' + esc(k.l) + '</div><div class="rkv' + (k.text ? ' t' : '') + '">' + (k.text ? esc(k.v) : fmtNum(k.v)) + '</div><div class="rks">' + esc(k.sub || '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function viewReports(el) {
+    S.rp = S.rp || { module: 'ALL', seasonId: '', unitId: '', categoryId: '', from: dAgo(29), to: '', q: '' };
+    el.innerHTML = '<div class="page-h"><h2>Reports</h2><button class="btn sm ghost" id="rp_x" type="button">Export CSV</button></div>' +
+      '<div class="mhelp">Every transaction in one place: pick a module, narrow it by season, unit, category and date, and export what you see. Cancelled entries are not counted.</div>' +
+      '<div id="rpf"></div><div id="rpv"><div class="empty">Loading…</div></div>';
+    S.rpBar = false;
+    $('#rp_x').onclick = exportReport;
+    var tip = $('#tip'); if (!tip) { tip = document.createElement('div'); tip.id = 'tip'; tip.className = 'tip'; tip.hidden = true; document.body.appendChild(tip); }
+    var v = $('#rpv');
+    function at(e) { var t = e.target.closest ? e.target.closest('[data-tip]') : null; if (!t) { tip.hidden = true; return; } tip.textContent = t.getAttribute('data-tip'); tip.hidden = false; var x = (e.clientX || 0) + 12, y = (e.clientY || 0) - 34; tip.style.left = Math.min(x, window.innerWidth - tip.offsetWidth - 8) + 'px'; tip.style.top = Math.max(4, y) + 'px'; }
+    v.addEventListener('mousemove', at); v.addEventListener('click', at); v.addEventListener('mouseleave', function () { tip.hidden = true; });
+    loadReports();
+  }
+  var rpSeq = 0;
+  function loadReports() {
+    var my = ++rpSeq;
+    return api('reportData', S.rp).then(function (r) {
+      if (my !== rpSeq || S.page !== 'reports') return;
+      S.rr = r; if (!S.rpBar) paintReportBar(r); paintReport(r);
+    }).catch(function (e) { if (my === rpSeq) { var v = $('#rpv'); if (v) v.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; } });
+  }
+  function paintReportBar(r) {
+    S.rpBar = true;
+    function opts(list, cur, all) { return '<option value="">' + all + '</option>' + list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === cur ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join(''); }
+    var f = S.rp;
+    $('#rpf').innerHTML = '<div class="fbar rpbar">' +
+      '<select id="rp_m" aria-label="Module"><option value="ALL"' + (f.module === 'ALL' ? ' selected' : '') + '>All modules (overview)</option>' + r.modules.map(function (m) { return '<option value="' + m.k + '"' + (m.k === f.module ? ' selected' : '') + '>' + esc(m.l) + '</option>'; }).join('') + '</select>' +
+      '<select id="rp_s" aria-label="Season">' + opts(r.filters.seasons, f.seasonId, 'All seasons') + '</select>' +
+      '<select id="rp_u" aria-label="Unit">' + opts(r.filters.units, f.unitId, 'All units') + '</select>' +
+      '<select id="rp_c" aria-label="Category">' + opts(r.filters.categories, f.categoryId, 'All categories') + '</select>' +
+      '<label class="tf-l">From <input type="date" id="rp_f" value="' + esc(f.from) + '"></label><label class="tf-l">To <input type="date" id="rp_t" value="' + esc(f.to) + '"></label>' +
+      '<span class="presets"><button class="btn sm ghost" type="button" data-d="7">7 days</button><button class="btn sm ghost" type="button" data-d="30">30 days</button><button class="btn sm ghost" type="button" data-d="90">90 days</button><button class="btn sm ghost" type="button" data-d="0">All dates</button></span>' +
+      '<input type="search" id="rp_q" placeholder="Search lot, plan, category, unit, remarks…" value="' + esc(f.q) + '" aria-label="Search"></div>';
+    function bind(id, key) { $(id).addEventListener('change', function () { S.rp[key] = this.value; loadReports(); }); }
+    bind('#rp_m', 'module'); bind('#rp_s', 'seasonId'); bind('#rp_u', 'unitId'); bind('#rp_c', 'categoryId');
+    function dates() { var a = $('#rp_f').value, b = $('#rp_t').value; if (a && b && a > b) { toast('From date is after To date', 'bad'); return; } S.rp.from = a; S.rp.to = b; loadReports(); }
+    $('#rp_f').addEventListener('change', dates); $('#rp_t').addEventListener('change', dates);
+    Array.prototype.forEach.call(document.querySelectorAll('.presets [data-d]'), function (b) {
+      b.addEventListener('click', function () { var d = Number(b.getAttribute('data-d')); S.rp.from = d ? dAgo(d - 1) : ''; S.rp.to = ''; $('#rp_f').value = S.rp.from; $('#rp_t').value = ''; loadReports(); });
+    });
+    var tmr; $('#rp_q').addEventListener('input', function () { var q = this.value; clearTimeout(tmr); tmr = setTimeout(function () { S.rp.q = q; loadReports(); }, 350); });
+  }
+  function periodName(by) { return by === 'month' ? 'month' : by === 'week' ? 'week' : 'day'; }
+  function paintReport(r) {
+    var h = kpiCards(r.kpi);
+    if (r.mode === 'ALL') {
+      h += '<div class="rg"><div class="card"><h3>Pieces through the factory</h3><div class="cellsub">Pass quantity at each stage in this period</div>' +
+        hbars(r.flow.map(function (s) { return { n: s.l, v: s.qty }; }), 'pcs') + '</div>' +
+        '<div class="card"><h3>Entries per ' + periodName(r.by) + '</h3><div class="cellsub">All modules together</div>' + barSvg(r.daily, r.by, 'entries') + '</div></div>';
+      h += '<h3 class="rt">All modules</h3><div class="tw"><table><thead><tr><th>Module</th><th class="num">Entries</th><th>Measure</th><th class="num">Total</th><th>Other totals</th></tr></thead><tbody>' +
+        r.stages.map(function (s) {
+          return '<tr><td data-l="Module"><button class="lnk" data-m="' + s.k + '">' + esc(s.l) + '</button></td><td data-l="Entries" class="num">' + fmtNum(s.entries) + '</td><td data-l="Measure">' + esc(s.ql) + '</td><td data-l="Total" class="num">' + fmtNum(s.qty) + '</td><td data-l="Other totals">' +
+            (s.extraTotals.length ? esc(s.extraTotals.map(function (e) { return e.l + ' ' + fmtNum(e.v); }).join(' · ')) : '–') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    } else {
+      var unit = r.module === 'manpower' ? 'people' : (r.module === 'fabric' ? '' : 'pcs');
+      h += '<div class="rg"><div class="card"><h3>' + esc(r.qtyLabel) + ' per ' + periodName(r.by) + '</h3>' + barSvg(r.daily, r.by, unit) + '</div>' +
+        '<div class="card"><h3>By category</h3>' + hbars(r.byCategory, unit) + '</div>' +
+        '<div class="card"><h3>By unit</h3>' + hbars(r.byUnit, unit) + '</div>' +
+        (r.bySeason.length > 1 || (r.bySeason[0] && r.bySeason[0].n !== '(none)') ? '<div class="card"><h3>By season</h3>' + hbars(r.bySeason, unit) + '</div>' : '') + '</div>';
+      h += '<h3 class="rt">' + esc(r.label) + ' entries</h3><div class="cellsub" style="margin:0 0 8px">' + fmtNum(r.total) + (r.total === 1 ? ' entry' : ' entries') + (r.capped ? ' – showing the latest ' + fmtNum(r.rows.length) + '. Narrow the dates to see the rest.' : '') + '</div>';
+      h += r.rows.length ? '<div class="tw"><table><thead><tr>' + r.cols.map(function (c) { return '<th' + (c.t === 'num' ? ' class="num"' : '') + '>' + esc(c.l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        r.rows.map(function (x) {
+          return '<tr>' + r.cols.map(function (c) { var v = x[c.k]; return '<td data-l="' + esc(c.l) + '"' + (c.t === 'num' ? ' class="num"' : '') + '>' + (c.t === 'date' ? esc(dfmt(v)) : c.t === 'num' ? fmtNum(v) : esc(v == null ? '' : v)) + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="card empty">No entries for this selection. Try a wider date range.</div>';
+    }
+    $('#rpv').innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll('#rpv .lnk'), function (b) {
+      b.addEventListener('click', function () { S.rp.module = b.getAttribute('data-m'); $('#rp_m').value = S.rp.module; loadReports(); });
+    });
+  }
+  function exportReport() {
+    var r = S.rr; if (!r) return toast('Nothing to export yet', 'bad');
+    var rows;
+    if (r.mode === 'ALL') {
+      rows = [['Module', 'Entries', 'Measure', 'Total', 'Other totals']].concat(r.stages.map(function (s) { return [s.l, s.entries, s.ql, s.qty, s.extraTotals.map(function (e) { return e.l + ' ' + e.v; }).join(' | ')]; }));
+    } else {
+      if (!r.rows.length) return toast('Nothing to export', 'bad');
+      rows = [r.cols.map(function (c) { return c.l; })].concat(r.rows.map(function (x) { return r.cols.map(function (c) { return c.t === 'date' ? dfmt(x[c.k]) : x[c.k]; }); }));
+    }
+    var f = S.rp, nm = 'Report_' + (r.mode === 'ALL' ? 'Overview' : r.label) + '_' + (f.from ? dfmt(f.from) : 'start') + '_to_' + (f.to ? dfmt(f.to) : 'today');
+    csvDownload(nm.replace(/[^A-Za-z0-9_\-]+/g, '_') + '.csv', rows);
+  }
 
   /* ---------- Audit trail (Phase 15) ---------- */
   function viewAudit(el) {
