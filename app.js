@@ -208,27 +208,38 @@
   }
 
   /* ---------- Revision D: search / date filter / CSV on transaction tables ---------- */
-  var TF_PAGES = { fabric: 1, lots: 1, conversion: 1, layering: 1, cutting: 1, sewout: 1, sewqc: 1, sewfinal: 1, washing: 1, washmove: 1, ironing: 1, ironqc: 1, stickering: 1, packsend: 1, packrecv: 1, ironlots: 1, jwinward: 1, audit: 1 };
+  var TF_SKIP = { password: 1, reports: 1 };   /* every other page gets search / filters / CSV on its tables */
   function dIso(t) {
     var m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(t || ''); if (!m) return '';
     var i = MON.map(function (x) { return x.toLowerCase(); }).indexOf(m[2].toLowerCase()); if (i < 0) return '';
     return m[3] + '-' + (i + 1 < 10 ? '0' : '') + (i + 1) + '-' + (m[1].length < 2 ? '0' : '') + m[1];
   }
   function enhanceTables() {
-    if (!TF_PAGES[S.page]) return;
+    if (TF_SKIP[S.page]) return;
     var root = document.getElementById('view'); if (!root) return;
     Array.prototype.forEach.call(root.querySelectorAll('table'), function (tb, ti) {
       if (tb.getAttribute('data-tf') || tb.closest('.modal')) return;
       var ths = Array.prototype.map.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (c) { return c.textContent.trim(); });
       var body = tb.tBodies[0]; if (!body || !body.rows.length) return;
+      if (S.page === 'dashboard' && body.rows.length < 4) return;
       tb.setAttribute('data-tf', '1');
       var dcol = -1;
       ths.forEach(function (t, i) { if (dcol < 0 && /^(date|started|completed)$/i.test(t)) dcol = i; });
+      if (dcol < 0) ths.forEach(function (t, i) { if (dcol < 0 && /(date|since|when|created|updated|last login|time)/i.test(t) && !/(cut-?off|per|hours?|std|standard|sam)/i.test(t)) dcol = i; });
+      /* drop-down filters for short, repeating columns (status, unit, season, category, stage ...) */
+      var fcols = [];
+      ths.forEach(function (t, i) {
+        if (i === dcol || !/^(status|unit|season|category|stage|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 3) return;
+        var seen = {}, n = 0, long = false;
+        Array.prototype.forEach.call(body.rows, function (tr) { var c = tr.cells[i]; var v = c ? c.textContent.replace(/\s+/g, ' ').trim() : ''; if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
+        if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort() });
+      });
       var prev = tb.previousElementSibling, title = (prev && /^H3$/.test(prev.tagName) ? prev.textContent : 'table') + '#' + ti;
       S.tf = S.tf || {}; var st = S.tf[title] = S.tf[title] || { q: '' };
       var bar = document.createElement('div'); bar.className = 'fbar tfbar';
       var R = S.range || {};
-      bar.innerHTML = '<input type="search" class="tf-q" placeholder="Search lot, plan, category, unit…" value="' + esc(st.q) + '" aria-label="Search">' +
+      bar.innerHTML = '<input type="search" class="tf-q" placeholder="Search…" value="' + esc(st.q) + '" aria-label="Search">' +
+        fcols.map(function (f, k) { st['f' + k] = st['f' + k] || ''; return '<select class="tf-s" data-k="' + k + '" aria-label="' + esc(f.label) + '"><option value="">All ' + esc(f.label.toLowerCase()) + '</option>' + f.vals.map(function (v) { return '<option' + (st['f' + k] === v ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select>'; }).join('') +
         (dcol >= 0 ? '<label class="tf-l">From <input type="date" class="tf-f" value="' + esc(R.from || '') + '"></label><label class="tf-l">To <input type="date" class="tf-t" value="' + esc(R.to || '') + '"></label><button class="btn sm ghost tf-c" type="button">Clear</button>' : '') +
         '<span class="tf-n"></span><button class="btn sm ghost tf-x" type="button">Export CSV</button>';
       tb.parentNode.insertBefore(bar, tb);
@@ -238,6 +249,7 @@
         st.q = qi.value;
         Array.prototype.forEach.call(body.rows, function (tr) {
           var ok = !q || tr.textContent.toLowerCase().indexOf(q) >= 0;
+          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w) { var c = tr.cells[f.i]; if (!c || c.textContent.replace(/\s+/g, ' ').trim() !== w) ok = false; } });
           if (ok && dcol >= 0 && (f || t)) {
             var d = dIso(tr.cells[dcol] && tr.cells[dcol].textContent);
             if (d && ((f && d < f) || (t && d > t))) ok = false;
@@ -247,6 +259,8 @@
         nEl.textContent = shown === all ? all + (all === 1 ? ' row' : ' rows') : shown + ' of ' + all + ' rows';
       }
       qi.addEventListener('input', apply);
+      Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.addEventListener('change', function () { st['f' + se.getAttribute('data-k')] = se.value; apply(); }); });
+      if (dcol < 0) { var cb = document.createElement('button'); cb.className = 'btn sm ghost tf-c'; cb.type = 'button'; cb.textContent = 'Clear'; bar.insertBefore(cb, bar.querySelector('.tf-n')); cb.addEventListener('click', function () { qi.value = ''; st.q = ''; Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.value = ''; st['f' + se.getAttribute('data-k')] = ''; }); apply(); }); }
       if (dcol >= 0) {
         var fi = bar.querySelector('.tf-f'), ti2 = bar.querySelector('.tf-t');
         var reload = function () {
@@ -255,7 +269,7 @@
           go(S.page, true);
         };
         fi.addEventListener('change', reload); ti2.addEventListener('change', reload);
-        bar.querySelector('.tf-c').addEventListener('click', function () { qi.value = ''; st.q = ''; if (S.range) { S.range = null; go(S.page, true); } else apply(); });
+        bar.querySelector('.tf-c').addEventListener('click', function () { qi.value = ''; st.q = ''; Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.value = ''; st['f' + se.getAttribute('data-k')] = ''; }); if (S.range) { S.range = null; go(S.page, true); } else apply(); });
       }
       bar.querySelector('.tf-x').addEventListener('click', function () {
         var keep = []; ths.forEach(function (t, i) { if (t) keep.push(i); });
@@ -454,7 +468,7 @@
   }
   function periodName(by) { return by === 'month' ? 'month' : by === 'week' ? 'week' : 'day'; }
   function paintReport(r) {
-    var h = kpiCards(r.kpi);
+    var h = (r.warnings && r.warnings.length ? '<div class="rwarn">' + r.warnings.map(function (w) { return esc(w); }).join('<br>') + '</div>' : '') + kpiCards(r.kpi);
     if (r.mode === 'ALL') {
       h += '<div class="rg"><div class="card"><h3>Pieces through the factory</h3><div class="cellsub">Pass quantity at each stage in this period</div>' +
         hbars(r.flow.map(function (s) { return { n: s.l, v: s.qty }; }), 'pcs') + '</div>' +

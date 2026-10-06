@@ -120,7 +120,7 @@ tr:last-child td{border-bottom:0}
   td:first-child{font-size:15px}
   td.acts-td::before{display:none}
   td.acts-td .btn{min-height:40px}
-  .tfbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tfbar .tf-q,.tfbar .tf-n{grid-column:1/-1;min-width:0}.tf-l{flex-direction:column;align-items:stretch;gap:3px;text-align:left;margin:0}.tf-l input{width:100%;min-width:0}.tfbar .btn{height:40px}
+  .tfbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tfbar .tf-q,.tfbar .tf-n{grid-column:1/-1;min-width:0}.tf-l{flex-direction:column;align-items:stretch;gap:3px;text-align:left;margin:0}.tf-l input{width:100%;min-width:0}.tfbar .btn,.tfbar .tf-s{height:40px;max-width:none;width:100%}
 }
 
 /* ---------- modal / toast / loader ---------- */
@@ -138,9 +138,11 @@ h3.sec{margin:22px 0 8px;font-size:15px}
 .chkbox{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0}.chk{display:flex;align-items:center;gap:6px;font-weight:400;margin:0}.chk input{width:auto;margin:0}
 .fbar label.inl{margin:0 4px 0 0;align-self:center;font-size:13px}
 .gridt{min-width:760px}.gridt th,.gridt td{padding:6px 8px;vertical-align:middle}.gridt input{padding:6px 8px;height:34px}.gcell{background:#FFFBE0}.gex{font-size:12px;color:var(--muted);text-align:right;padding-right:4px}.gridt tfoot td{background:#FFF1D6;font-weight:600}.gtot,.gleft{white-space:nowrap}
-.tfbar{margin:6px 0 8px;align-items:center}.tfbar .tf-q{flex:1 1 220px;min-width:160px}.tf-l{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap}.tf-n{font-size:12px;color:var(--muted);margin-left:auto}
+.tfbar{margin:6px 0 8px;align-items:center}.tfbar .tf-q{flex:1 1 220px;min-width:160px}.tf-l{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap}.tf-n{font-size:12px;color:var(--muted);margin-left:auto}.tf-s{max-width:170px;min-width:0}
+
 
 /* ---------- revision E ---------- */
+.rwarn{background:#FFF4DB;border:1px solid #F0D08A;color:#7A5200;border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px}
 .lg-client{display:block;max-height:64px;max-width:220px;margin:0 auto 14px;object-fit:contain}
 .lg-top{height:36px;max-width:150px;background:#fff;border-radius:6px;padding:3px 6px;object-fit:contain;flex:none}
 .powered{display:flex;align-items:center;justify-content:center;gap:8px;font-size:11px;color:var(--muted);margin-top:18px}
