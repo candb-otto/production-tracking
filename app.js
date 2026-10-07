@@ -227,9 +227,15 @@
       ths.forEach(function (t, i) { if (dcol < 0 && /^(date|started|completed)$/i.test(t)) dcol = i; });
       if (dcol < 0) ths.forEach(function (t, i) { if (dcol < 0 && /(date|since|when|created|updated|last login|time)/i.test(t) && !/(cut-?off|per|hours?|std|standard|sam)/i.test(t)) dcol = i; });
       /* drop-down filters for short, repeating columns (status, unit, season, category, stage ...) */
-      var fcols = [];
+      var fcols = [], PAGE = 10;
+      var unitAttr = Array.prototype.some.call(body.rows, function (tr) { return tr.hasAttribute('data-unit'); });
+      if (unitAttr) {
+        var useen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = tr.getAttribute('data-unit') || ''; if (v) useen[v] = 1; });
+        if (Object.keys(useen).length >= 1) fcols.push({ i: -1, attr: 'data-unit', label: 'Unit', vals: Object.keys(useen).sort() });
+      }
       ths.forEach(function (t, i) {
-        if (i === dcol || !/^(status|unit|season|category|stage|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 3) return;
+        if (unitAttr && /unit/i.test(t)) return;
+        if (i === dcol || !/^(status|unit|season|category|stage|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 4) return;
         var seen = {}, n = 0, long = false;
         Array.prototype.forEach.call(body.rows, function (tr) { var c = tr.cells[i]; var v = c ? c.textContent.replace(/\s+/g, ' ').trim() : ''; if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
         if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort() });
@@ -246,21 +252,50 @@
         '<span class="tf-n"></span><button class="btn sm ghost tf-x" type="button">Export CSV</button>';
       tb.parentNode.insertBefore(bar, tb);
       var qi = bar.querySelector('.tf-q'), nEl = bar.querySelector('.tf-n');
-      function apply() {
-        var q = qi.value.trim().toLowerCase(), f = (S.range && S.range.from) || '', t = (S.range && S.range.to) || '', shown = 0, all = body.rows.length;
+      var pg = document.createElement('div'); pg.className = 'pager'; tb.parentNode.insertBefore(pg, tb.nextSibling);
+      function apply(keep) {
+        var q = qi.value.trim().toLowerCase(), f = (S.range && S.range.from) || '', t = (S.range && S.range.to) || '', all = body.rows.length, ms = [];
         st.q = qi.value;
+        if (keep !== true) st.p = 0;
         Array.prototype.forEach.call(body.rows, function (tr) {
           var ok = !q || tr.textContent.toLowerCase().indexOf(q) >= 0;
-          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w) { var c = tr.cells[f.i]; if (!c || c.textContent.replace(/\s+/g, ' ').trim() !== w) ok = false; } });
+          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w) { if (f.attr) { if ((tr.getAttribute(f.attr) || '') !== w) ok = false; } else { var c = tr.cells[f.i]; if (!c || c.textContent.replace(/\s+/g, ' ').trim() !== w) ok = false; } } });
           if (ok && dcol >= 0 && (f || t)) {
             var d = dIso(tr.cells[dcol] && tr.cells[dcol].textContent);
             if (d && ((f && d < f) || (t && d > t))) ok = false;
           }
-          tr.style.display = ok ? '' : 'none'; if (ok) shown++;
+          tr._m = ok; if (ok) ms.push(tr);
         });
+        var shown = ms.length, pages = Math.max(1, Math.ceil(shown / PAGE));
+        st.p = Math.min(Math.max(0, st.p || 0), pages - 1);
+        var from = st.p * PAGE, to = from + PAGE;
+        Array.prototype.forEach.call(body.rows, function (tr) { tr.style.display = 'none'; });
+        ms.forEach(function (tr, i) { if (i >= from && i < to) tr.style.display = ''; });
         nEl.textContent = shown === all ? all + (all === 1 ? ' row' : ' rows') : shown + ' of ' + all + ' rows';
+        paintPager(pages, shown);
       }
-      qi.addEventListener('input', apply);
+      function paintPager(pages, shown) {
+        if (pages < 2) { pg.innerHTML = ''; return; }
+        var cur = st.p, set = {}, h = '';
+        [0, 1, 2, pages - 1, cur - 1, cur, cur + 1].forEach(function (n) { if (n >= 0 && n < pages) set[n] = 1; });
+        if (pages <= 9) for (var z = 0; z < pages; z++) set[z] = 1;
+        var list = Object.keys(set).map(Number).sort(function (a, b) { return a - b; }), last = -1;
+        h += '<button type="button" class="pg-b" data-pg="' + (cur - 1) + '"' + (cur === 0 ? ' disabled' : '') + '>&lsaquo; Prev</button>';
+        list.forEach(function (n) {
+          if (last >= 0 && n - last > 1) h += '<span class="pg-e">&hellip;</span>';
+          h += '<button type="button" class="pg-b' + (n === cur ? ' on' : '') + '" data-pg="' + n + '"' + (n === cur ? ' aria-current="page"' : '') + '>' + (n + 1) + '</button>';
+          last = n;
+        });
+        h += '<button type="button" class="pg-b" data-pg="' + (cur + 1) + '"' + (cur === pages - 1 ? ' disabled' : '') + '>Next &rsaquo;</button>';
+        h += '<span class="pg-i">Showing ' + (cur * PAGE + 1) + '–' + Math.min(shown, (cur + 1) * PAGE) + ' of ' + shown + '</span>';
+        pg.innerHTML = h;
+      }
+      pg.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('.pg-b') : null; if (!b || b.disabled) return;
+        st.p = Number(b.getAttribute('data-pg')); apply(true);
+        if (bar.scrollIntoView) bar.scrollIntoView({ block: 'nearest' });
+      });
+      qi.addEventListener('input', function () { apply(); });
       /* sorting: the server sends the newest transaction ID first; the user can sort by any column here or by clicking a heading */
       Array.prototype.forEach.call(body.rows, function (tr, i) { tr._i0 = i; });
       var so = bar.querySelector('.tf-o');
@@ -283,7 +318,7 @@
           });
         }
         rows.forEach(function (tr) { body.appendChild(tr); });
-        so.value = st.o;
+        so.value = st.o; apply();
         Array.prototype.forEach.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (th, i) { th.classList.remove('s-a', 's-d'); if (m && Number(m[1]) === i) th.classList.add(m[2] === 'a' ? 's-a' : 's-d'); });
       }
       so.addEventListener('change', function () { doSort(so.value); });
@@ -308,7 +343,7 @@
         var keep = []; ths.forEach(function (t, i) { if (t) keep.push(i); });
         var acts = tb.tHead.rows[0].cells.length; var rows = [keep.map(function (i) { return ths[i]; })];
         Array.prototype.forEach.call(body.rows, function (tr) {
-          if (tr.style.display === 'none') return;
+          if (tr._m === false) return;
           rows.push(keep.map(function (i) {
             var c = tr.cells[i]; if (!c || c.classList.contains('acts-td')) return '';
             return Array.prototype.map.call(c.childNodes, function (n) { return (n.nodeType === 1 && /^(DIV|BR)$/.test(n.tagName) ? ' | ' : '') + n.textContent; }).join('').replace(/\s*\n\s*/g, ' | ').replace(/\s+/g, ' ').trim();
@@ -319,7 +354,7 @@
         csvDownload(nm.replace(/[^A-Za-z0-9_\-]+/g, '_') + '.csv', rows);
       });
       if (st.o) doSort(st.o);
-      apply();
+      apply(true);
     });
   }
   function cur_() { var m = S.menu.filter(function (x) { return x.key === S.page; })[0]; return m ? (m.label || m.title || m.key) : ''; }
@@ -1035,7 +1070,7 @@
     $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (p) {
         var act = p.Status === 'ACTIVE';
-        return '<tr><td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
+        return '<tr data-unit="' + esc(p.Unit) + '"><td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
           '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + '</td>' +
           '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Iron &amp; pack', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
@@ -1441,7 +1476,7 @@
     $('#il_b').innerHTML = ph + '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Source</th><th>Qty (pcs)</th><th>Received</th><th>Stage</th><th></th></tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Lot_Status === 'ACTIVE';
-        return '<tr' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Lot_Remarks ? ' · ' + esc(x.Lot_Remarks) : '') + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit) + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Lot_Remarks ? ' · ' + esc(x.Lot_Remarks) : '') + '</div></td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Source">' + esc(x.Source) + '</td><td data-l="Qty (pcs)"><b>' + fmtNum(x.Lot_Qty) + '</b></td><td data-l="Received">' + esc(dfmt(x.Received_Date)) + '</td>' +
@@ -1500,26 +1535,20 @@
     return api('fabricList').then(function (r) { S.fab = r; paintFabric(); }).catch(fail);
   }
   function paintFabric() {
-    var r = S.fab, rows = r.rows, q = (S.fq || '').toLowerCase();
-    $('#fh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Each issue creates one original lot. You can edit or cancel an issue until the lot is used in production.</div>' +
-      '<input id="fq" placeholder="Search lot, plan, fabric…" style="max-width:220px" value="' + esc(S.fq || '') + '">' +
+    var r = S.fab;
+    $('#fh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Each issue creates one original lot. You can edit or cancel an issue until the lot is used in production. Use the search, unit filter and sort above the table; 10 issues are shown per page.</div>' +
       (r.canWrite ? '<button class="btn" id="fadd">+ Issue fabric</button>' : '') + '</div>';
-    $('#fq').oninput = function () { S.fq = this.value; paintFabricRows(); };
     if (r.canWrite) $('#fadd').onclick = function () { fabricForm(null); };
     paintFabricRows();
-    var f = $('#fq'); f.focus(); f.setSelectionRange(f.value.length, f.value.length);
   }
   function paintFabricRows() {
-    var r = S.fab, q = (S.fq || '').toLowerCase();
-    var rows = r.rows.filter(function (x) {
-      return !q || [x.Lot_No, x.Lot_ID, x.Plan_ID, x.Fabric_Type, x.Season, x.Category, x.Unit, x.Fabric_Issue_ID].join(' ').toLowerCase().indexOf(q) >= 0;
-    });
-    if (!rows.length) { $('#fb').innerHTML = '<div class="card empty">' + (r.rows.length ? 'No match.' : 'No fabric issued yet' + (r.canWrite ? '. Click “+ Issue fabric”.' : '.')) + '</div>'; return; }
+    var r = S.fab, rows = r.rows;
+    if (!rows.length) { $('#fb').innerHTML = '<div class="card empty">No fabric issued yet' + (r.canWrite ? '. Click “+ Issue fabric”.' : '.') + '</div>'; return; }
     var anyAct = r.canWrite;
     $('#fb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Sub type</th><th>Fabric</th><th>Qty (pcs)</th><th>Date</th><th>Flags</th><th>Status</th>' + (anyAct ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Status === 'ACTIVE';
-        return '<tr' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + ' · ' + esc(x.Fabric_Issue_ID) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit) + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + ' · ' + esc(x.Fabric_Issue_ID) + '</div></td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Sub type">' + (x.Sub_Type ? esc(x.Sub_Type) : '-') + '</td>' +
