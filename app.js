@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, reports: viewReports, users: viewUsers, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     v($('#view'));
   }
 
@@ -208,7 +208,7 @@
   }
 
   /* ---------- Revision D: search / date filter / CSV on transaction tables ---------- */
-  var TF_SKIP = { password: 1, reports: 1 };   /* every other page gets search / filters / CSV on its tables */
+  var TF_SKIP = { password: 1, reports: 1, alertset: 1 };   /* every other page gets search / filters / CSV on its tables */
   function dIso(t) {
     var m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(t || ''); if (!m) return '';
     var i = MON.map(function (x) { return x.toLowerCase(); }).indexOf(m[2].toLowerCase()); if (i < 0) return '';
@@ -218,7 +218,7 @@
     if (TF_SKIP[S.page]) return;
     var root = document.getElementById('view'); if (!root) return;
     Array.prototype.forEach.call(root.querySelectorAll('table'), function (tb, ti) {
-      if (tb.getAttribute('data-tf') || tb.closest('.modal')) return;
+      if (tb.getAttribute('data-tf') || tb.closest('.modal') || tb.classList.contains('nocsv')) return;
       var ths = Array.prototype.map.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (c) { return c.textContent.trim(); });
       var body = tb.tBodies[0]; if (!body || !body.rows.length) return;
       if (S.page === 'dashboard' && body.rows.length < 4) return;
@@ -290,13 +290,10 @@
   }
   function cur_() { var m = S.menu.filter(function (x) { return x.key === S.page; })[0]; return m ? (m.label || m.title || m.key) : ''; }
   (function () {
+    /* watch the whole page (not just #view): signing out and in builds a new #view, and the bars must come back every time */
     var pend = false;
-    function run() { pend = false; try { enhanceTables(); } catch (e) { } }
-    function arm() {
-      var v = document.getElementById('view'); if (!v) return setTimeout(arm, 300);
-      new MutationObserver(function () { if (!pend) { pend = true; setTimeout(run, 30); } }).observe(v, { childList: true, subtree: true });
-    }
-    arm();
+    function run() { pend = false; try { enhanceTables(); } catch (e) { if (window.console) console.error('table tools', e); } }
+    new MutationObserver(function () { if (!pend) { pend = true; setTimeout(run, 30); } }).observe(document.body, { childList: true, subtree: true });
   })();
 
   /* ---------- Revision E: logos, DD-MMM-YYYY date boxes, Reports, notification bell ---------- */
@@ -426,10 +423,10 @@
   }
   function viewReports(el) {
     S.rp = S.rp || { module: 'ALL', seasonId: '', unitId: '', categoryId: '', from: dAgo(29), to: '', q: '' };
-    el.innerHTML = '<div class="page-h"><h2>Reports</h2><button class="btn sm ghost" id="rp_x" type="button">Export CSV</button></div>' +
+    el.innerHTML = '<div class="page-h"><h2>Reports</h2><button class="btn sm ghost" id="rp_x" type="button">Export CSV</button></div>' + repLinks('reports') +
       '<div class="mhelp">Every transaction in one place: pick a module, narrow it by season, unit, category and date, and export what you see. Cancelled entries are not counted.</div>' +
       '<div id="rpf"></div><div id="rpv"><div class="empty">Loading…</div></div>';
-    S.rpBar = false;
+    S.rpBar = false; bindRepLinks(el);
     $('#rp_x').onclick = exportReport;
     var tip = $('#tip'); if (!tip) { tip = document.createElement('div'); tip.id = 'tip'; tip.className = 'tip'; tip.hidden = true; document.body.appendChild(tip); }
     var v = $('#rpv');
@@ -1001,11 +998,11 @@
     }
     if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No plans' + (canWrite ? ' yet. Click “+ Add plan”.' : ' for your unit yet.') + '</div>'; return; }
     var total = rows.reduce(function (a, x) { return a + (x.Status === 'ACTIVE' ? x.Plan_Qty : 0); }, 0);
-    $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Category</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (p) {
         var act = p.Status === 'ACTIVE';
         return '<tr><td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
-          '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
+          '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + '</td>' +
           '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Iron &amp; pack', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
           '<td data-l="Status"><span class="badge ' + (act ? 'ok' : 'off') + '">' + (act ? 'Active' : 'Closed') + '</span>' + (p.Fit_Status === 'OVER' ? ' <span class="badge warn" title="' + esc(p.Fit_Reason) + '">Over capacity</span><div class="cellsub" style="white-space:normal">' + esc(p.Fit_Reason) + '</div>' : '') + (p.Order_ID ? '<div class="cellsub">' + esc(p.Order_ID) + '</div>' : '') + '</td>' +
@@ -1068,6 +1065,7 @@
       (isNew ? '<label for="pf_t">Plan type</label><select id="pf_t"><option value="">Normal (fabric to packing)</option><option value="IRON_ONLY">Ironing-only (job worker / warehouse re-ironing)</option></select><div class="hint" id="pf_th" hidden>Lots of this plan are added in <b>Ironing-only Lots</b> and only go through ironing, stickering and packing.</div>' : (curIO ? '<div class="hint"><span class="badge">Ironing only</span> The plan type cannot be changed.</div>' : '')) +
       '<div id="pf_g1"><label for="pf_o">Season order (optional)</label><select id="pf_o"></select></div>' +
       '<label for="pf_c">Category</label>' + sel('pf_c', refs.Category_ID, p ? p.Category_ID : (pre.categoryId || ''), 'Select…') +
+      (S.plans.subTypeCol ? '<label for="pf_sub">Sub type (optional)</label><input id="pf_sub" maxlength="40" autocomplete="off" placeholder="e.g. Customer B" value="' + esc(p ? p.Sub_Type : '') + '"><div class="hint">Use it when the same category is planned twice in a unit, for example one plan for one customer and another plan for the rest.</div>' : '') +
       '<label for="pf_u">Unit</label>' + sel('pf_u', refs.Unit_ID, p ? p.Unit_ID : '', 'Select…') +
       '<label for="pf_q">Plan quantity (pcs)</label><input id="pf_q" type="number" min="1" step="1" inputmode="numeric" value="' + esc(p ? p.Plan_Qty : (pre.qty || '')) + '">' +
       '<div class="hint" id="pf_oh"></div>' +
@@ -1142,6 +1140,7 @@
         $('#pf').onsubmit = function (ev) {
           ev.preventDefault();
           var f = { Category_ID: $('#pf_c').value, Unit_ID: $('#pf_u').value, Plan_Qty: $('#pf_q').value, Cutoff_Date: $('#pf_d').value, Fabric_Cutoff_Date: $('#pf_fc').value, Cutting_Cutoff_Date: $('#pf_cc').value, IronPack_Cutoff_Date: $('#pf_ic').value, Remarks: $('#pf_r').value, Order_ID: $('#pf_o').value };
+          if ($('#pf_sub')) f.Sub_Type = $('#pf_sub').value;
           if (isNew) { f.Season_ID = $('#pf_se').value; f.Plan_Type = $('#pf_t').value; }
           if (isIO()) { f.Cutoff_Date = ''; f.Fabric_Cutoff_Date = ''; f.Cutting_Cutoff_Date = ''; f.Order_ID = ''; }
           if (!isIO() && isJW()) f.Cutting_Cutoff_Date = '';
@@ -2168,6 +2167,116 @@
     $('#tk_back').onclick = function () { paintTrack(); };
   }
   /* ---- Phase 11: WIP & aging ---- */
+  /* ---------- Revision G: WIP days by unit, lot cycle time, alert limits ---------- */
+  function optList(list, cur, all) { return '<option value="">' + all + '</option>' + list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === cur ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join(''); }
+  function repLinks(active) {
+    return '<div class="rlinks">' + [['reports', 'Transactions'], ['wipdays', 'WIP days by unit'], ['cycle', 'Lot cycle time']].filter(function (x) { return S.menu.some(function (m) { return m.key === x[0]; }); }).map(function (x) {
+      return '<button class="btn sm ' + (x[0] === active ? '' : 'ghost') + '" type="button" data-go="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
+  }
+  function bindRepLinks(el) { Array.prototype.forEach.call(el.querySelectorAll('[data-go]'), function (b) { b.onclick = function () { go(b.getAttribute('data-go')); }; }); }
+
+  function viewWipDays(el) {
+    S.wd = S.wd || { unitId: '', seasonId: '' };
+    el.innerHTML = '<div class="page-h"><h2>WIP Days by Unit</h2></div>' + repLinks('wipdays') +
+      '<div class="mhelp"><b>Days of WIP</b> = pieces held in a process ÷ the average daily output of that process in that unit (last working days; set in <b>FORECAST_AVG_DAYS</b>). ' +
+      '<span class="badge warn">Constraint</span> means the WIP is below the minimum days you set, so the process will run out of work. <span class="badge off">Over WIP</span> means it is above the maximum days. Set the limits in <b>Alert Settings</b>.</div>' +
+      '<div id="wdf"></div><div id="wdb"><div class="empty">Loading…</div></div>';
+    bindRepLinks(el); loadWipDays();
+  }
+  function loadWipDays() { return api('wipDaysReport', S.wd).then(function (r) { if (S.page !== 'wipdays') return; S.wdr = r; paintWipDays(r); }).catch(function (e) { var b = $('#wdb'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; }); }
+  function wdBadge(st) { return st === 'OVER' ? ' <span class="badge off">Over WIP</span>' : st === 'CONSTRAINT' ? ' <span class="badge warn">Constraint</span>' : ''; }
+  function paintWipDays(r) {
+    var f = S.wd, h = '';
+    h += '<form class="fbar" id="wdform"><select id="wd_u" aria-label="Unit">' + optList(r.unitsList.map(function (u) { return { id: u.id, name: u.name }; }), f.unitId, 'All units') + '</select>' +
+      '<select id="wd_s" aria-label="Season">' + optList(r.seasons, f.seasonId, 'All seasons') + '</select><button class="btn" type="submit">Show</button></form>';
+    h += kpiCards([{ l: 'Total WIP', v: r.totalWip, sub: 'pieces in all processes' }, { l: 'Constraints', v: r.counts.CONSTRAINT, sub: 'WIP below the minimum days' }, { l: 'Over WIP', v: r.counts.OVER, sub: 'WIP above the maximum days' },
+      { l: 'Average output of', v: r.avgDays + ' days', text: 1, sub: 'working days before today' }]);
+    var byUnit = {}, order = [];
+    r.rows.forEach(function (x) { if (!byUnit[x.Unit_ID]) { byUnit[x.Unit_ID] = { name: x.Unit, by: {} }; order.push(x.Unit_ID); } byUnit[x.Unit_ID].by[x.Proc] = x; });
+    h += '<h3 class="rt">Days of WIP by unit and process</h3>';
+    h += order.length ? '<div class="tw"><table class="nocsv"><thead><tr><th>Unit</th>' + r.procs.map(function (p) { return '<th>' + esc(p.l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      order.map(function (id) {
+        var u = byUnit[id];
+        return '<tr><td data-l="Unit"><b>' + esc(u.name) + '</b></td>' + r.procs.map(function (p) {
+          var c = u.by[p.k]; if (!c || c.Status === 'NONE') return '<td data-l="' + esc(p.l) + '">–</td>';
+          return '<td data-l="' + esc(p.l) + '"><b>' + (c.Days == null ? 'no output' : c.Days + ' d') + '</b>' + wdBadge(c.Status) + '<div class="cellsub">' + fmtNum(c.Wip) + ' pcs</div></td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="card empty">No units.</div>';
+    h += '<h3 class="rt">Details</h3><div class="tw"><table><thead><tr><th>Unit</th><th>Process</th><th class="num">Lots</th><th class="num">WIP pcs</th><th class="num">Avg output / day</th><th class="num">Days of WIP</th><th>Limits (days)</th><th>Status</th></tr></thead><tbody>' +
+      r.rows.filter(function (x) { return x.Status !== 'NONE'; }).map(function (x) {
+        return '<tr><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Process">' + esc(x.Process) + '</td><td data-l="Lots" class="num">' + x.Lots + '</td><td data-l="WIP pcs" class="num"><b>' + fmtNum(x.Wip) + '</b></td>' +
+          '<td data-l="Avg output / day" class="num">' + fmtNum(x.AvgOut) + '</td><td data-l="Days of WIP" class="num"><b>' + (x.Days == null ? '–' : x.Days) + '</b></td>' +
+          '<td data-l="Limits">' + (x.Min || x.Max ? 'min ' + (x.Min || '–') + ' · max ' + (x.Max || '–') : 'not set') + '</td><td data-l="Status">' + (x.Status === 'OVER' ? '<span class="badge off">Over WIP</span>' : x.Status === 'CONSTRAINT' ? '<span class="badge warn">Constraint</span>' : '<span class="badge ok">OK</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    $('#wdb').innerHTML = h;
+    $('#wdform').onsubmit = function (e) { e.preventDefault(); S.wd.unitId = $('#wd_u').value; S.wd.seasonId = $('#wd_s').value; loadWipDays(); };
+  }
+
+  var CYC_COLS = [['WAIT', 'Fabric → layering (waiting)'], ['LAY', 'Layering'], ['CUT', 'Cutting'], ['CUT_TOTAL', 'Fabric → cutting out'], ['SEW_HOURLY', 'Sewing hourly (from cutting out)'], ['SEW_QC', 'Sewing QC'], ['SEW_FINAL', 'Sewing final'],
+    ['SEW_CYCLE', 'Sewing cycle (cut out → sew out)'], ['JOBWORK', 'Job work'], ['WASH', 'Washing'], ['IRON', 'Ironing'], ['IRON_CYCLE', 'Ironing cycle'], ['STICK', 'Stickering'], ['STICK_CYCLE', 'Stickering cycle'], ['PACK', 'Packing'], ['TOTAL', 'Total (fabric → packing)']];
+  function viewCycle(el) {
+    S.cy = S.cy || { unitId: '', seasonId: '', categoryId: '', status: 'ALL', q: '' };
+    el.innerHTML = '<div class="page-h"><h2>Lot Cycle Time</h2></div>' + repLinks('cycle') +
+      '<div class="mhelp">Calendar days for every lot, from <b>fabric issue</b> to <b>packing receive</b>: the wait before layering, then the time in each process, and the cycle times (fabric → cutting out, cutting out → sewing out, and so on). A number followed by <b>…</b> is still running (counted up to today). ' +
+      'Red means the limit set in <b>Alert Settings</b> is exceeded.</div><div id="cyf"></div><div id="cyb"><div class="empty">Loading…</div></div>';
+    bindRepLinks(el); loadCycle();
+  }
+  var cySeq = 0;
+  function loadCycle() { var my = ++cySeq; return api('cycleReport', S.cy).then(function (r) { if (my !== cySeq || S.page !== 'cycle') return; S.cyr = r; paintCycle(r); }).catch(function (e) { var b = $('#cyb'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; }); }
+  function cyCell(z, over) {
+    if (!z || z.d == null) return '<td class="num">–</td>';
+    return '<td class="num' + (over ? ' cyover' : '') + '">' + (over ? '<b>' + z.d + '</b>' : z.d) + (z.o ? '…' : '') + '</td>';
+  }
+  function paintCycle(r) {
+    var f = S.cy, h = '';
+    if (!$('#cy_s')) {
+      $('#cyf').innerHTML = '<form class="fbar" id="cyform"><select id="cy_s" aria-label="Season"></select><select id="cy_u" aria-label="Unit"></select><select id="cy_c" aria-label="Category"></select>' +
+        '<select id="cy_t" aria-label="Status"><option value="ALL">All lots</option><option value="RUNNING">Running lots</option><option value="DONE">Finished lots</option></select>' +
+        '<input type="search" id="cy_q" placeholder="Search lot or plan…" aria-label="Search"><button class="btn" type="submit">Show</button></form>';
+      $('#cyform').onsubmit = function (e) { e.preventDefault(); S.cy.seasonId = $('#cy_s').value; S.cy.unitId = $('#cy_u').value; S.cy.categoryId = $('#cy_c').value; S.cy.status = $('#cy_t').value; S.cy.q = $('#cy_q').value; loadCycle(); };
+      $('#cy_t').value = f.status; $('#cy_q').value = f.q;
+    }
+    $('#cy_s').innerHTML = optList(r.seasons, f.seasonId, 'All seasons'); $('#cy_u').innerHTML = optList(r.units, f.unitId, 'All units'); $('#cy_c').innerHTML = optList(r.cats, f.categoryId, 'All categories');
+    var tot = r.summary.filter(function (z) { return z.k === 'TOTAL'; })[0], over = r.rows.filter(function (x) { return x.Flags.length; }).length;
+    h += kpiCards([{ l: 'Lots', v: r.total, sub: 'in this selection' }, { l: 'Finished lots', v: tot ? tot.n : 0, sub: 'fabric issue to packing' }, { l: 'Average total', v: tot && tot.avg != null ? tot.avg + ' days' : '–', text: 1, sub: 'finished lots' },
+      { l: 'Longest total', v: tot && tot.max != null ? tot.max + ' days' : '–', text: 1, sub: 'finished lots' }, { l: 'Over a limit', v: over, sub: 'lots with a process over its limit' }]);
+    h += '<div class="rg"><div class="card"><h3>Average days per process</h3><div class="cellsub">Finished stages only</div>' +
+      hbars(r.summary.filter(function (z) { return z.avg != null && z.k !== 'TOTAL'; }).map(function (z) { return { n: z.l, v: z.avg }; }), 'days') + '</div>' +
+      '<div class="card"><h3>Summary</h3><div class="tw"><table class="nocsv"><thead><tr><th>Process</th><th class="num">Lots</th><th class="num">Average</th><th class="num">Longest</th><th class="num">Over limit</th></tr></thead><tbody>' +
+      r.summary.map(function (z) { return '<tr><td data-l="Process">' + esc(z.l) + '</td><td data-l="Lots" class="num">' + z.n + '</td><td data-l="Average" class="num">' + (z.avg == null ? '–' : z.avg) + '</td><td data-l="Longest" class="num">' + (z.max == null ? '–' : z.max) + '</td><td data-l="Over limit" class="num">' + (z.over || '–') + '</td></tr>'; }).join('') +
+      '</tbody></table></div></div></div>';
+    var LIM = { WAIT: 'FABRIC', LAY: 'LAYERING', CUT: 'CUTTING', SEW_CYCLE: 'SEWING', WASH: 'WASHING', IRON_CYCLE: 'IRONING', STICK_CYCLE: 'STICKERING', PACK: 'PACKING' };
+    h += '<h3 class="rt">Lots' + (r.total > r.rows.length ? ' (first ' + r.rows.length + ' of ' + r.total + ')' : '') + '</h3>';
+    h += r.rows.length ? '<div class="tw"><table class="cyt"><thead><tr><th>Lot</th><th>Category</th><th>Unit</th><th>Stage</th><th>Fabric issued</th>' + CYC_COLS.map(function (c) { return '<th class="num">' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      r.rows.map(function (x) {
+        var fl = {}; x.Flags.forEach(function (z) { fl[z.k] = 1; });
+        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Plan_ID) + (x.Done ? ' · finished' : '') + '</div></td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + '</td><td data-l="Fabric issued">' + esc(dfmt(x.Issued)) + '</td>' +
+          CYC_COLS.map(function (c) { var z = x.S[c[0]], ov = LIM[c[0]] && fl[LIM[c[0]]]; return cyCell(z, ov).replace('<td ', '<td data-l="' + esc(c[1]) + '" '); }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="card empty">No lots for this selection.</div>';
+    $('#cyb').innerHTML = h;
+  }
+
+  function viewAlertSet(el) {
+    el.innerHTML = '<div class="page-h"><h2>Alert Settings</h2></div>' +
+      '<div class="mhelp">Limits that raise a notification (the bell) and a flag on the WIP Days and Lot Cycle Time pages. Leave a box empty or enter <b>0</b> for no limit.</div><div id="asb"><div class="empty">Loading…</div></div>';
+    api('alertSettingsInfo').then(function (r) {
+      if (S.page !== 'alertset') return;
+      var h = '<div class="card"><h3>WIP limits (days of WIP)</h3><div class="cellsub" style="white-space:normal">Days of WIP = WIP pieces ÷ average daily output of the process in that unit. <b>Constraint</b>: alert when WIP is below the minimum. <b>Over WIP</b>: alert when WIP is above the maximum. Average output uses the last ' + r.avgDays + ' working days (setting FORECAST_AVG_DAYS).</div>' +
+        '<div class="tw"><table class="nocsv"><thead><tr><th>Process</th><th>Constraint: below (days)</th><th>Over WIP: above (days)</th></tr></thead><tbody>' +
+        r.procs.map(function (p) { return '<tr><td data-l="Process"><b>' + esc(p.l) + '</b></td><td data-l="Constraint: below"><input class="as" data-k="WIP_MIN_' + p.k + '" inputmode="decimal" value="' + (p.min || '') + '" placeholder="no limit"></td><td data-l="Over WIP: above"><input class="as" data-k="WIP_MAX_' + p.k + '" inputmode="decimal" value="' + (p.max || '') + '" placeholder="no limit"></td></tr>'; }).join('') +
+        '</tbody></table></div></div>' +
+        '<div class="card"><h3>Cycle time limits (days)</h3><div class="cellsub" style="white-space:normal">Alert when a lot has been in a process longer than this many days.</div>' +
+        '<div class="tw"><table class="nocsv"><thead><tr><th>Process</th><th>Measured as</th><th>Maximum days</th></tr></thead><tbody>' +
+        r.cycle.map(function (c) { return '<tr><td data-l="Process"><b>' + esc(c.l) + '</b></td><td data-l="Measured as">' + esc(c.h) + '</td><td data-l="Maximum days"><input class="as" data-k="CYC_MAX_' + c.k + '" inputmode="decimal" value="' + (c.max || '') + '" placeholder="no limit"></td></tr>'; }).join('') +
+        '</tbody></table></div></div><div class="row"><button class="btn" id="as_save" type="button">Save limits</button></div>';
+      $('#asb').innerHTML = h;
+      $('#as_save').onclick = function () {
+        var v = {}; Array.prototype.forEach.call(document.querySelectorAll('#asb .as'), function (i) { v[i.getAttribute('data-k')] = i.value; });
+        api('alertSettingsSave', { values: v }).then(function (x) { toast(x.changed ? 'Limits saved' : 'Nothing changed', 'ok'); loadNotifs(); }).catch(fail);
+      };
+    }).catch(function (e) { $('#asb').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
+  }
+
   function viewWip(el) {
     S.wf = S.wf || { unitId: '', seasonId: '' };
     el.innerHTML = '<div class="page-h"><h2>WIP &amp; Aging</h2></div><div id="vh"></div><div id="vb"></div>';

@@ -198,3 +198,4 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .hbr{grid-template-columns:1fr auto}.hbl{grid-column:1/-1}.hbt{grid-column:1}
   .lg-top{max-width:96px}
 }
+.rlinks{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}td.cyover{background:#FDECEA;color:var(--bad)}.cyt th,.cyt td{white-space:nowrap}.cyt td.num{text-align:right}input.as{width:130px;max-width:100%}@media (max-width:680px){.cyt th,.cyt td{white-space:normal}input.as{width:100%}}
