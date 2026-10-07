@@ -199,3 +199,4 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .lg-top{max-width:96px}
 }
 .rlinks{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}td.cyover{background:#FDECEA;color:var(--bad)}.cyt th,.cyt td{white-space:nowrap}.cyt td.num{text-align:right}input.as{width:130px;max-width:100%}@media (max-width:680px){.cyt th,.cyt td{white-space:normal}input.as{width:100%}}
+th.sortable{cursor:pointer;user-select:none}th.sortable:hover{color:var(--navy)}th.s-a::after{content:' \25B2';font-size:9px}th.s-d::after{content:' \25BC';font-size:9px}.tf-o{max-width:210px;min-width:0}@media (max-width:680px){.tfbar .tf-o{width:100%;max-width:none;height:40px;grid-column:1/-1}}

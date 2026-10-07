@@ -241,6 +241,8 @@
       bar.innerHTML = '<input type="search" class="tf-q" placeholder="Search…" value="' + esc(st.q) + '" aria-label="Search">' +
         fcols.map(function (f, k) { st['f' + k] = st['f' + k] || ''; return '<select class="tf-s" data-k="' + k + '" aria-label="' + esc(f.label) + '"><option value="">All ' + esc(f.label.toLowerCase()) + '</option>' + f.vals.map(function (v) { return '<option' + (st['f' + k] === v ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select>'; }).join('') +
         (dcol >= 0 ? '<label class="tf-l">From <input type="date" class="tf-f" value="' + esc(R.from || '') + '"></label><label class="tf-l">To <input type="date" class="tf-t" value="' + esc(R.to || '') + '"></label><button class="btn sm ghost tf-c" type="button">Clear</button>' : '') +
+        '<select class="tf-o" aria-label="Sort"><option value="">Sort: newest ID first</option>' +
+        ths.map(function (t, i) { return t ? '<option value="' + i + ':a">' + esc(t) + ' (A → Z, low → high)</option><option value="' + i + ':d">' + esc(t) + ' (Z → A, high → low)</option>' : ''; }).join('') + '</select>' +
         '<span class="tf-n"></span><button class="btn sm ghost tf-x" type="button">Export CSV</button>';
       tb.parentNode.insertBefore(bar, tb);
       var qi = bar.querySelector('.tf-q'), nEl = bar.querySelector('.tf-n');
@@ -259,6 +261,37 @@
         nEl.textContent = shown === all ? all + (all === 1 ? ' row' : ' rows') : shown + ' of ' + all + ' rows';
       }
       qi.addEventListener('input', apply);
+      /* sorting: the server sends the newest transaction ID first; the user can sort by any column here or by clicking a heading */
+      Array.prototype.forEach.call(body.rows, function (tr, i) { tr._i0 = i; });
+      var so = bar.querySelector('.tf-o');
+      function sortKey(tr, c) {
+        var t = ((tr.cells[c] && tr.cells[c].textContent) || '').replace(/\s+/g, ' ').trim(), iso = dIso(t), n = Number(t.replace(/[,%\s]/g, ''));
+        if (iso && /^\d{1,2}-[A-Za-z]{3}-\d{4}/.test(t)) return { k: iso + t.slice(11), t: 's' };
+        if (t !== '' && isFinite(n) && /^[\d.,%\s-]+$/.test(t)) return { k: n, t: 'n' };
+        return { k: t.toLowerCase(), t: 's' };
+      }
+      function doSort(v) {
+        st.o = v || '';
+        var rows = Array.prototype.slice.call(body.rows), m = /^(\d+):([ad])$/.exec(st.o);
+        if (!m) rows.sort(function (a, b) { return a._i0 - b._i0; });
+        else {
+          var c = Number(m[1]), dir = m[2] === 'a' ? 1 : -1;
+          rows.sort(function (a, b) {
+            var x = sortKey(a, c), y = sortKey(b, c), r;
+            if (x.t === 'n' && y.t === 'n') r = x.k - y.k; else r = String(x.k).localeCompare(String(y.k), undefined, { numeric: true });
+            return (r * dir) || (a._i0 - b._i0);
+          });
+        }
+        rows.forEach(function (tr) { body.appendChild(tr); });
+        so.value = st.o;
+        Array.prototype.forEach.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (th, i) { th.classList.remove('s-a', 's-d'); if (m && Number(m[1]) === i) th.classList.add(m[2] === 'a' ? 's-a' : 's-d'); });
+      }
+      so.addEventListener('change', function () { doSort(so.value); });
+      Array.prototype.forEach.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (th, i) {
+        if (!ths[i]) return;
+        th.classList.add('sortable'); th.title = 'Click to sort';
+        th.addEventListener('click', function () { var m = /^(\d+):([ad])$/.exec(st.o || ''); doSort(i + ':' + (m && Number(m[1]) === i && m[2] === 'a' ? 'd' : 'a')); });
+      });
       Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.addEventListener('change', function () { st['f' + se.getAttribute('data-k')] = se.value; apply(); }); });
       if (dcol < 0) { var cb = document.createElement('button'); cb.className = 'btn sm ghost tf-c'; cb.type = 'button'; cb.textContent = 'Clear'; bar.insertBefore(cb, bar.querySelector('.tf-n')); cb.addEventListener('click', function () { qi.value = ''; st.q = ''; Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.value = ''; st['f' + se.getAttribute('data-k')] = ''; }); apply(); }); }
       if (dcol >= 0) {
@@ -285,6 +318,7 @@
         var nm = (cur_() || S.page) + (S.range ? '_' + (S.range.from || 'start') + '_to_' + (S.range.to || 'now') : '') + (qi.value.trim() ? '_filtered' : '');
         csvDownload(nm.replace(/[^A-Za-z0-9_\-]+/g, '_') + '.csv', rows);
       });
+      if (st.o) doSort(st.o);
       apply();
     });
   }
@@ -1482,12 +1516,13 @@
     });
     if (!rows.length) { $('#fb').innerHTML = '<div class="card empty">' + (r.rows.length ? 'No match.' : 'No fabric issued yet' + (r.canWrite ? '. Click “+ Issue fabric”.' : '.')) + '</div>'; return; }
     var anyAct = r.canWrite;
-    $('#fb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Fabric</th><th>Qty (pcs)</th><th>Date</th><th>Flags</th><th>Status</th>' + (anyAct ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    $('#fb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Sub type</th><th>Fabric</th><th>Qty (pcs)</th><th>Date</th><th>Flags</th><th>Status</th>' + (anyAct ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Status === 'ACTIVE';
         return '<tr' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + ' · ' + esc(x.Fabric_Issue_ID) + '</div></td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
+          '<td data-l="Sub type">' + (x.Sub_Type ? esc(x.Sub_Type) : '-') + '</td>' +
           '<td data-l="Fabric">' + esc(x.Fabric_Type) + (x.Fabric_Width ? '<div class="cellsub">' + esc(x.Fabric_Width) + '</div>' : '') + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(x.Issue_Qty) + '<div class="cellsub">Order ' + fmtNum(x.Order_Qty) + (x.Extra_Qty ? ' · Extra ' + fmtNum(x.Extra_Qty) : '') + '</div></td><td data-l="Date">' + esc(dfmt(x.Issue_Date)) + '</td>' +
           '<td data-l="Flags">' + (x.JobWork ? '<span class="badge">Job work</span>' + (x.Inhouse_Finish ? ' <span class="badge">In-house finish</span>' : '') : (x.Washing_Required ? '<span class="badge">Wash</span>' : '-')) + '</td>' +
@@ -1515,11 +1550,15 @@
     openModal('<h3>' + (isNew ? 'Issue fabric' : 'Edit issue ' + esc(x.Fabric_Issue_ID)) + '</h3><form id="ff">' + planHtml +
       '<label for="ff_l">ERP lot number</label><input id="ff_l" maxlength="30" autocomplete="off" placeholder="Lot number from ERP" value="' + esc(x ? x.Lot_No : '') + '">' +
       '<label for="ff_d">Issue date</label><input id="ff_d" type="date" max="' + today + '" value="' + esc(x ? x.Issue_Date : today) + '">' +
-      '<label for="ff_t">Fabric type</label><input id="ff_t" maxlength="60" autocomplete="off" value="' + esc(x ? x.Fabric_Type : '') + '">' +
+      '<label for="ff_t">Fabric type</label>' + (function () {
+        var L = ['Plain', 'Print', 'Check', 'Strips', 'Panel'], cur = x ? x.Fabric_Type : '';
+        if (cur && L.indexOf(cur) < 0) L = L.concat([cur]);   /* an older entry keeps its own value */
+        return '<select id="ff_t"><option value="">Select…</option>' + L.map(function (o) { return '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+      })() +
       '<label for="ff_w">Fabric width (optional)</label><input id="ff_w" maxlength="30" autocomplete="off" value="' + esc(x ? x.Fabric_Width : '') + '">' +
       '<label for="ff_q">Total quantity issued (pieces) – becomes the lot quantity</label><input id="ff_q" type="number" min="1" step="1" inputmode="numeric" value="' + esc(x ? x.Issue_Qty : '') + '">' +
       '<label for="ff_e">Extra quantity (optional)</label><input id="ff_e" type="number" min="0" step="1" inputmode="numeric" value="' + esc(x && x.Extra_Qty ? x.Extra_Qty : '') + '"><div class="hint" id="ff_oh"></div>' +
-      '<label class="chk" id="ff_wrl"><input type="checkbox" id="ff_wr"' + (x ? (x.Washing_Required ? ' checked' : '') : ' checked') + '> Washing required</label>' +
+      '<label class="chk" id="ff_wrl"><input type="checkbox" id="ff_wr"' + (x && x.Washing_Required ? ' checked' : '') + '> Washing required</label>' +
       '<label class="chk" id="ff_ihl" hidden><input type="checkbox" id="ff_ih"' + (x ? (x.Inhouse_Finish ? ' checked' : '') : ' checked') + '> In-house ironing, stickering &amp; packing after FG inward</label>' +
       '<div class="hint" id="ff_jh" hidden>Job work plan: this is the fabric sent out to the job worker. The finished goods are recorded in <b>Job Work Inward</b>.</div>' +
       '<label for="ff_r">Remarks (optional)</label><input id="ff_r" maxlength="200" autocomplete="off" value="' + esc(x ? x.Remarks : '') + '">' +
@@ -2693,7 +2732,7 @@
         var live = x.Lot_Status === 'ACTIVE';
         return '<tr' + (x.Lot_Status === 'CANCELLED' ? ' style="opacity:.6"' : '') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Origin ? ' · from ' + esc(x.Origin) : '') + '</div></td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
-          '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
+          '<td data-l="Category / Unit">' + esc(x.Category) + (x.Sub_Type ? ' <span class="badge">' + esc(x.Sub_Type) + '</span>' : '') + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Type">' + esc(x.Lot_Type === 'JOB_WORK' ? 'Job work' : x.Lot_Type === 'IRON_ONLY' ? 'Ironing only' : x.Lot_Type.charAt(0) + x.Lot_Type.slice(1).toLowerCase()) + (x.Lot_Source ? '<div class="cellsub">' + esc(srcName(x.Lot_Source)) + '</div>' : '') + '</td><td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td><td data-l="Moved out">' + (x.Moved_Out ? fmtNum(x.Moved_Out) : '-') + '</td><td data-l="Balance"><b>' + fmtNum(x.Balance) + '</b></td>' +
           '<td data-l="Stage">' + (live ? esc(STAGE[x.Current_Stage] || x.Current_Stage) + (x.Current_Stage === 'LAYERING' && !x.Started ? '<div class="cellsub">Not started</div>' : '') : '-') + '</td>' +
           '<td data-l="Days in stage">' + (x.DaysInStage == null ? '-' : x.DaysInStage) + '</td>' +
