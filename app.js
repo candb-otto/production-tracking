@@ -1644,15 +1644,15 @@
   }
   function loadSewOut() { return api('sewOutList').then(function (r) { S.so = r; paintSewOut(); }).catch(fail); }
   function paintSewOut() {
-    var r = S.so, w = r.canWrite, h = '';
+    var r = S.so, w = r.canWrite, h = '', open = r.lots.filter(function (x) { return x.InLine > 0; });
     $('#vh').innerHTML = '<div class="mhelp">Pick a lot, then an hour slot, and enter the output count. Total output cannot exceed the cut quantity. An hour can be changed or removed only until the next hour is entered.</div>';
     h += '<h3 class="sec">Lots in sewing</h3>';
-    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>In line</th><th>Days</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
-      r.lots.map(function (x) {
+    h += open.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>In line</th><th>Days</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      open.map(function (x) {
         return '<tr>' + lotHead(x) + '<td data-l="Cut qty">' + fmtNum(x.Cut) + '</td><td data-l="Output"><b>' + fmtNum(x.Out) + '</b></td><td data-l="In line"><b>' + fmtNum(x.InLine) + '</b></td>' +
           '<td data-l="Days">' + (x.Days == null ? '-' : x.Days) + '</td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-lot="' + esc(x.Lot_ID) + '"' + (x.InLine <= 0 ? ' disabled' : '') + '>Enter output</button></div></td>' : '') + '</tr>';
-      }).join('') + '</tbody></table>' : '<div class="card empty">No lot is in sewing. A lot arrives after its cutting is marked complete.</div>';
+      }).join('') + '</tbody></table>' : '<div class="card empty">No lot has pieces in line. A lot appears here after cutting is marked complete and until all its cut pieces have output.</div>';
     h += '<h3 class="sec">Recent hourly output</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Date</th><th>Hour</th><th>Lot</th><th>Category</th><th>Unit</th><th>Output</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
@@ -1707,7 +1707,7 @@
   function paintSewQc() {
     var r = S.sq, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Enter QC results for a lot as many times as needed: pass, damage, cancel (fabric parts missing) and alteration pieces. Checked = pass + damage + cancel, and it cannot exceed the hourly output. Balance = hourly output − checked. Percentages are of the cut quantity.</div>';
-    var open = r.lots.filter(function (x) { return x.ToQC > 0; }), done = r.lots.filter(function (x) { return x.ToQC <= 0; });
+    var open = r.lots.filter(function (x) { return x.ToQC > 0; }), done = r.lots.filter(function (x) { return x.ToQC <= 0 && x.Out > 0; });
     function qcRow(x, btn) {
       return '<tr>' + lotHead(x) + '<td data-l="Cut qty">' + fmtNum(x.Cut) + '</td><td data-l="Output">' + fmtNum(x.Out) + '</td><td data-l="Checked">' + fmtNum(x.QcTotal) + '</td><td data-l="Balance"><b>' + fmtNum(x.ToQC) + '</b></td>' +
         '<td data-l="Pass">' + fmtNum(x.QcPass) + '<div class="cellsub">' + pctTxt(x.PassPct) + '</div></td><td data-l="Damage">' + fmtNum(x.QcDamage) + '<div class="cellsub">' + pctTxt(x.DamagePct) + '</div></td>' +
@@ -1718,7 +1718,7 @@
     h += '<h3 class="sec">Lots in sewing – QC balance pending</h3>';
     h += open.length ? head + open.map(function (x) { return qcRow(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">No lot has output waiting for QC.</div>';
     h += '<h3 class="sec">Lot summary – no balance</h3>';
-    h += done.length ? head + done.map(function (x) { return qcRow(x, false); }).join('') + '</tbody></table>' : '<div class="card empty">No lot without balance.</div>';
+    h += done.length ? head + done.map(function (x) { return qcRow(x, false); }).join('') + '</tbody></table>' : '<div class="card empty">No lot with output and no balance.</div>';
     h += '<h3 class="sec">QC entries</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Entry</th><th>Lot</th><th>Category</th><th>Unit</th><th>Date</th><th>Total</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
