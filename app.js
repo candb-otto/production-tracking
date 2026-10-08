@@ -2409,9 +2409,10 @@
   }
   function paintMan() {
     var r = S.mp, w = r.canWrite, h = '';
+    if (!r.setup || !r.procs) { $('#vh').innerHTML = ''; $('#vb').innerHTML = '<div class="card" style="border-left:4px solid var(--warn)"><b>The server has not been updated yet.</b><div>This page needs the latest <b>production-tracking-api</b> version. Upload it to the production-tracking-api repo, wait for the deployment to finish, then press Reload data.</div></div>'; return; }
     $('#vh').innerHTML = '<div class="mhelp">Enter manpower for <b>Cutting, Sewing, Ironing and Stickering</b>. <b>Normal working time</b> (9 AM – 6 PM): strength and present for every unit in one grid. <b>OT working time</b>: pick the slot (8–9 AM, or 6 PM – 12 AM in 30-minute steps) and the number of OT employees per unit. Every entry stays in the lists below – search, filter, sort, export, edit or remove any of them.</div>' +
       (r.setup.process && r.setup.otSheet ? '' : '<div class="card" style="border-left:4px solid var(--warn);margin:8px 0"><b>One-time setup needed in your Google Sheet:</b>' +
-        (r.setup.process ? '' : '<div>Add a column named <b>Process</b> to the <b>Manpower</b> sheet (row 1).</div>') +
+        (r.setup.process ? '' : '<div>Add a column named <b>Process</b> (capital P, exactly) to the <b>Manpower</b> sheet (row 1).</div>') +
         (r.setup.otSheet ? '' : '<div>Create a sheet named <b>Manpower_OT</b> with these headers in row 1: <code>' + esc(r.otCols.join(', ')) + '</code></div>') + '</div>') +
       (w ? '<p><button class="btn" id="mp_new">+ Normal working time</button> <button class="btn" id="ot_new">+ OT working time</button></p>' : '');
     if (r.absent.length) h += '<div class="jr">' + r.absent.map(function (a) { return '<div class="jc"><h4>' + esc(a.Unit) + '</h4><div class="kv"><span>Sewing absentee (30 days)</span><b>' + a.Pct + '%</b></div><div class="kv"><span>Days counted</span><b>' + a.Days + '</b></div></div>'; }).join('') + '</div>';
