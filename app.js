@@ -191,6 +191,7 @@
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
     var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
 
