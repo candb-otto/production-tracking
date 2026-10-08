@@ -228,17 +228,25 @@
       if (dcol < 0) ths.forEach(function (t, i) { if (dcol < 0 && /(date|since|when|created|updated|last login|time)/i.test(t) && !/(cut-?off|per|hours?|std|standard|sam)/i.test(t)) dcol = i; });
       /* drop-down filters for short, repeating columns (status, unit, season, category, stage ...) */
       var fcols = [], PAGE = 10;
-      var unitAttr = Array.prototype.some.call(body.rows, function (tr) { return tr.hasAttribute('data-unit'); });
-      if (unitAttr) {
-        var useen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = tr.getAttribute('data-unit') || ''; if (v) useen[v] = 1; });
-        if (Object.keys(useen).length >= 1) fcols.push({ i: -1, attr: 'data-unit', label: 'Unit', vals: Object.keys(useen).sort() });
+      var cellTxt = function (tr, i) { var c = tr.cells[i]; return c ? c.textContent.replace(/\s+/g, ' ').trim() : ''; };
+      /* Unit filter first, on every table that has a unit: a unit column, a "Category / Unit" column, or rows tagged with data-unit */
+      var unitAttr = Array.prototype.some.call(body.rows, function (tr) { return tr.hasAttribute('data-unit'); }), unitCol = -1;
+      if (!unitAttr) ths.forEach(function (t, i) { if (unitCol < 0 && i !== dcol && /\bunit\b/i.test(t) && !/^(units|unit\s*(id|code))$/i.test(t)) unitCol = i; });
+      var unitGet = unitAttr ? function (tr) { return tr.getAttribute('data-unit') || ''; } : (unitCol >= 0 ? function (tr) {
+        var c = tr.cells[unitCol]; if (!c) return '';
+        if (/^unit$/i.test(ths[unitCol])) return c.textContent.replace(/\s+/g, ' ').trim();
+        var sub = c.querySelector('.cellsub'); return (sub || c).textContent.replace(/\s+/g, ' ').trim();
+      } : null);
+      if (unitGet) {
+        var useen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = unitGet(tr); if (v) useen[v] = 1; });
+        if (Object.keys(useen).length >= 2) fcols.push({ i: unitCol, label: 'Unit', vals: Object.keys(useen).sort(), get: unitGet });
       }
       ths.forEach(function (t, i) {
-        if (unitAttr && /unit/i.test(t)) return;
-        if (i === dcol || !/^(status|unit|season|category|stage|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 4) return;
+        if (i === unitCol || (unitAttr && /unit/i.test(t))) return;
+        if (i === dcol || !/^(status|unit|season|category|stage|process|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 4) return;
         var seen = {}, n = 0, long = false;
-        Array.prototype.forEach.call(body.rows, function (tr) { var c = tr.cells[i]; var v = c ? c.textContent.replace(/\s+/g, ' ').trim() : ''; if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
-        if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort() });
+        Array.prototype.forEach.call(body.rows, function (tr) { var v = cellTxt(tr, i); if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
+        if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort(), get: (function (ci) { return function (tr) { return cellTxt(tr, ci); }; })(i) });
       });
       var prev = tb.previousElementSibling, title = (prev && /^H3$/.test(prev.tagName) ? prev.textContent : 'table') + '#' + ti;
       S.tf = S.tf || {}; var st = S.tf[title] = S.tf[title] || { q: '' };
@@ -259,7 +267,7 @@
         if (keep !== true) st.p = 0;
         Array.prototype.forEach.call(body.rows, function (tr) {
           var ok = !q || tr.textContent.toLowerCase().indexOf(q) >= 0;
-          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w) { if (f.attr) { if ((tr.getAttribute(f.attr) || '') !== w) ok = false; } else { var c = tr.cells[f.i]; if (!c || c.textContent.replace(/\s+/g, ' ').trim() !== w) ok = false; } } });
+          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w && f.get(tr) !== w) ok = false; });
           if (ok && dcol >= 0 && (f || t)) {
             var d = dIso(tr.cells[dcol] && tr.cells[dcol].textContent);
             if (d && ((f && d < f) || (t && d > t))) ok = false;
@@ -2042,7 +2050,7 @@
   function paintIronQc() {
     var r = S.iq, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Enter QC results for ironed pieces as many times as needed: pass, damage (fabric defect / unit defect), cancel and alteration. Checked = pass + damage + cancel, limited to the ironing output. Tick <b>last QC entry</b> to close ironing – the lot then moves to stickering with the QC pass qty.</div>';
-    var open = r.lots.filter(function (x) { return x.ToQC > 0; }), done = r.lots.filter(function (x) { return x.ToQC <= 0; });
+    var open = r.lots.filter(function (x) { return x.ToQC > 0; }), done = r.lots.filter(function (x) { return x.ToQC <= 0 && x.Ironed > 0; });
     function row(x, btn) {
       return '<tr>' + lotHead(x) + '<td data-l="Received">' + fmtNum(x.Src) + '</td><td data-l="Ironed">' + fmtNum(x.Ironed) + '</td><td data-l="Checked">' + fmtNum(x.QcTotal) + '</td><td data-l="Balance"><b>' + fmtNum(Math.max(0, x.ToQC)) + '</b></td>' +
         '<td data-l="Pass">' + fmtNum(x.QcPass) + '<div class="cellsub">' + pctTxt(x.PassPct) + '</div></td><td data-l="Damage">' + fmtNum(x.QcDamage) + '<div class="cellsub">Fabric ' + fmtNum(x.QcFabric) + ' · Unit ' + fmtNum(x.QcUnit) + ' · ' + pctTxt(x.DamagePct) + '</div></td>' +
@@ -2053,7 +2061,7 @@
     h += '<h3 class="sec">Lots in ironing – QC balance pending</h3>';
     h += open.length ? head + open.map(function (x) { return row(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">No lot has ironed pieces waiting for QC.</div>';
     h += '<h3 class="sec">Lot summary – no balance</h3>';
-    h += done.length ? head + done.map(function (x) { return row(x, false); }).join('') + '</tbody></table>' : '<div class="card empty">No lot without balance.</div>';
+    h += done.length ? head + done.map(function (x) { return row(x, false); }).join('') + '</tbody></table>' : '<div class="card empty">No lot with ironing output and no balance.</div>';
     h += '<h3 class="sec">QC entries</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Entry</th><th>Lot</th><th>Category</th><th>Unit</th><th>Date</th><th>Total</th><th>Pass</th><th>Fabric defect</th><th>Unit defect</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
@@ -2396,63 +2404,139 @@
     loadMan();
   }
   function loadMan() { return api('manList').then(function (r) { S.mp = r; paintMan(); }).catch(fail); }
+  function procOpts(r, cur, writeOnly) {
+    return r.procs.filter(function (p) { return !writeOnly || p.canWrite; }).map(function (p) { return '<option value="' + p.k + '"' + (cur === p.k ? ' selected' : '') + '>' + esc(p.l) + '</option>'; }).join('');
+  }
   function paintMan() {
     var r = S.mp, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">One entry per unit per day: <b>strength</b> (on roll) and <b>present</b> for the normal hours (default ' + r.shiftHours + ' h), then the employees present in each OT slot: <b>6:00–7:30 PM</b> (1.5 h) and <b>8:00 PM until 9 PM … 12 AM</b> (7:30–8:00 PM is break). Absentee % = (strength − present) ÷ strength. Efficiency uses normal + OT man-minutes. Entering a date again changes that day.</div>' +
-      (w ? '<p><button class="btn" id="mp_new">+ Enter manpower</button></p>' : '');
-    if (r.absent.length) h += '<div class="jr">' + r.absent.map(function (a) { return '<div class="jc"><h4>' + esc(a.Unit) + '</h4><div class="kv"><span>Absentee (30 days)</span><b>' + a.Pct + '%</b></div><div class="kv"><span>Days counted</span><b>' + a.Days + '</b></div></div>'; }).join('') + '</div>';
-    if (r.missing.length) h += '<h3 class="sec">Missing (working days, last 14)</h3><div class="chips">' + r.missing.map(function (m) {
-      return '<button class="chipb" data-mu="' + esc(m.Unit_ID) + '" data-md="' + esc(m.Date) + '"' + (w ? '' : ' disabled') + '>' + esc(dfmt(m.Date)) + (r.units.length > 1 ? ' · ' + esc(m.Unit) : '') + '</button>';
+    $('#vh').innerHTML = '<div class="mhelp">Enter manpower for <b>Cutting, Sewing, Ironing and Stickering</b>. <b>Normal working time</b> (9 AM – 6 PM): strength and present for every unit in one grid. <b>OT working time</b>: pick the slot (8–9 AM, or 6 PM – 12 AM in 30-minute steps) and the number of OT employees per unit. Every entry stays in the lists below – search, filter, sort, export, edit or remove any of them.</div>' +
+      (r.setup.process && r.setup.otSheet ? '' : '<div class="card" style="border-left:4px solid var(--warn);margin:8px 0"><b>One-time setup needed in your Google Sheet:</b>' +
+        (r.setup.process ? '' : '<div>Add a column named <b>Process</b> to the <b>Manpower</b> sheet (row 1).</div>') +
+        (r.setup.otSheet ? '' : '<div>Create a sheet named <b>Manpower_OT</b> with these headers in row 1: <code>' + esc(r.otCols.join(', ')) + '</code></div>') + '</div>') +
+      (w ? '<p><button class="btn" id="mp_new">+ Normal working time</button> <button class="btn" id="ot_new">+ OT working time</button></p>' : '');
+    if (r.absent.length) h += '<div class="jr">' + r.absent.map(function (a) { return '<div class="jc"><h4>' + esc(a.Unit) + '</h4><div class="kv"><span>Sewing absentee (30 days)</span><b>' + a.Pct + '%</b></div><div class="kv"><span>Days counted</span><b>' + a.Days + '</b></div></div>'; }).join('') + '</div>';
+    var canP = {}; r.procs.forEach(function (p) { canP[p.k] = p.canWrite; });
+    if (r.missing.length) h += '<h3 class="sec">Normal working time not entered (working days, last 14)</h3><div class="chips">' + r.missing.map(function (m) {
+      return '<button class="chipb" data-mu="' + esc(m.Unit_ID) + '" data-md="' + esc(m.Date) + '" data-mp="' + esc(m.Process) + '"' + (canP[m.Process] ? '' : ' disabled') + '>' + esc(dfmt(m.Date)) + ' · ' + esc(PROC[m.Process] || m.Process) + (r.units.length > 1 ? ' · ' + esc(m.Unit) : '') + '</button>';
     }).join('') + '</div>';
-    h += '<h3 class="sec">Last 30 days</h3>';
-    h += r.rows.length ? '<table><thead><tr><th>Date</th><th>Unit</th><th>Strength</th><th>Present</th><th>Absent</th><th>OT 6–7:30 PM</th><th>OT 8 PM+</th><th>Man-hours</th><th>Remarks</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += '<h3 class="sec">Normal working time (9 AM – 6 PM)</h3>';
+    h += r.rows.length ? '<table><thead><tr><th>Date</th><th>Process</th><th>Unit</th><th>Strength</th><th>Present</th><th>Absent</th><th>Hours</th><th>Man-hours</th><th>Remarks</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
-        return '<tr><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Strength">' + (x.Strength == null ? '-' : fmtNum(x.Strength)) + '</td><td data-l="Present"><b>' + fmtNum(x.Present) + '</b></td>' +
-          '<td data-l="Absent">' + (x.Absent == null ? '-' : x.Absent + ' · ' + x.AbsentPct + '%') + '</td><td data-l="OT 6–7:30 PM">' + (x.OT1 ? fmtNum(x.OT1) : '-') + '</td>' +
-          '<td data-l="OT 8 PM+">' + (x.OT2 ? fmtNum(x.OT2) + '<div class="cellsub">till ' + esc(hrLabel(x.OT2End)) + '</div>' : '-') + '</td><td data-l="Man-hours">' + fmtNum(x.ManHours) + '</td><td data-l="Remarks">' + esc(x.Remarks) + '</td>' +
-          (w ? '<td class="acts-td"><div class="acts"><button class="btn sm ghost" data-ed="' + esc(x._id) + '">Edit</button><button class="btn sm ghost" data-xo="' + esc(x._id) + '">Remove</button></div></td>' : '') + '</tr>';
-      }).join('') + '</tbody></table>' : '<div class="card empty">No manpower entered in the last 30 days.</div>';
+        return '<tr data-unit="' + esc(x.Unit) + '"><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Process">' + esc(PROC[x.Process] || x.Process) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Strength">' + (x.Strength == null ? '-' : fmtNum(x.Strength)) + '</td><td data-l="Present"><b>' + fmtNum(x.Present) + '</b></td>' +
+          '<td data-l="Absent">' + (x.Absent == null ? '-' : x.Absent + ' · ' + x.AbsentPct + '%') + '</td><td data-l="Hours">' + x.Hours + '</td><td data-l="Man-hours">' + fmtNum(x.ManHoursNormal) + '</td><td data-l="Remarks">' + esc(x.Remarks) + '</td>' +
+          (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-ed="' + esc(x._id) + '">Edit</button><button class="btn sm ghost" data-xo="' + esc(x._id) + '">Remove</button>' : '') + '</div></td>' : '') + '</tr>';
+      }).join('') + '</tbody></table>' : '<div class="card empty">No normal working time entered yet.</div>';
+    h += '<h3 class="sec">OT working time</h3>';
+    h += r.ot.length ? '<table><thead><tr><th>Date</th><th>Process</th><th>Unit</th><th>OT slot</th><th>OT hours</th><th>Employees</th><th>Man-hours</th><th>Remarks</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      r.ot.map(function (x) {
+        return '<tr data-unit="' + esc(x.Unit) + '"><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Process">' + esc(PROC[x.Process] || x.Process) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="OT slot">' + esc(x.Slot) + (x.Legacy ? ' <span class="badge" title="Entered with the older form">older entry</span>' : '') + '</td><td data-l="OT hours">' + x.Hours + '</td>' +
+          '<td data-l="Employees"><b>' + fmtNum(x.Count) + '</b></td><td data-l="Man-hours">' + fmtNum(x.ManHours) + '</td><td data-l="Remarks">' + esc(x.Remarks) + '</td>' +
+          (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-oed="' + esc(x._id) + '">Edit</button><button class="btn sm ghost" data-oxo="' + esc(x._id) + '">Remove</button>' : '') + '</div></td>' : '') + '</tr>';
+      }).join('') + '</tbody></table>' : '<div class="card empty">No OT working time entered yet.</div>';
     $('#vb').innerHTML = h;
-    if ($('#mp_new')) $('#mp_new').onclick = function () { manForm(null, null, null); };
+    if ($('#mp_new')) $('#mp_new').onclick = function () { manGrid({}); };
+    if ($('#ot_new')) $('#ot_new').onclick = function () { otGrid({}); };
     $('#vb').onclick = function (e) {
       var t = e.target; if (!t.getAttribute) return;
-      if (t.getAttribute('data-mu')) return manForm(null, t.getAttribute('data-mu'), t.getAttribute('data-md'));
-      if (t.getAttribute('data-ed')) { var row = r.rows.filter(function (z) { return z._id === t.getAttribute('data-ed'); })[0]; if (row) manForm(row); return; }
-      var id = t.getAttribute('data-xo');
-      if (id) confirmBox('Remove this entry?', 'The manpower entry will be removed.', 'Remove', true).then(function (ok) {
+      if (t.getAttribute('data-mu')) return manGrid({ date: t.getAttribute('data-md'), process: t.getAttribute('data-mp') });
+      var id;
+      if ((id = t.getAttribute('data-ed'))) { var row = r.rows.filter(function (z) { return z._id === id; })[0]; if (row) manGrid({ date: row.Date, process: row.Process }); return; }
+      if ((id = t.getAttribute('data-oed'))) { var o = r.ot.filter(function (z) { return z._id === id; })[0]; if (o) otGrid({ date: o.Date, process: o.Process, from: o.From, to: o.To }); return; }
+      if ((id = t.getAttribute('data-xo'))) return confirmBox('Remove this entry?', 'The normal working time entry will be removed.', 'Remove', true).then(function (ok) {
         if (ok) api('manCancel', { id: id }).then(function () { toast('Entry removed', 'ok'); return loadMan(); }).catch(fail);
+      });
+      if ((id = t.getAttribute('data-oxo'))) return confirmBox('Remove this OT entry?', 'The OT entry will be removed.', 'Remove', true).then(function (ok) {
+        if (ok) api('otCancel', { id: id }).then(function () { toast('OT entry removed', 'ok'); return loadMan(); }).catch(fail);
       });
     };
   }
-  function manForm(edit, unitId, day) {
-    var r = S.mp, u = edit ? edit.Unit_ID : (unitId || (r.units[0] && r.units[0].id)), ends = [];
-    for (var e2 = 20.5; e2 <= 24; e2 += 0.5) ends.push(e2);
-    openModal('<h3>' + (edit ? 'Change manpower' : 'Daily manpower') + '</h3>' +
-      '<form id="mp"><label for="mp_u">Unit</label>' + unitSel('mp_u', r.units, u, false).replace('<select', '<select' + (edit || r.units.length < 2 ? ' disabled' : '')) +
-      '<label for="mp_d">Date</label><input id="mp_d" type="date" max="' + todayStr() + '" value="' + esc(edit ? edit.Date : (day || todayStr())) + '"' + (edit ? ' disabled' : '') + '>' +
-      '<label for="mp_s">Strength (total on roll)</label><input id="mp_s" type="number" min="1" step="1" inputmode="numeric" value="' + (edit && edit.Strength ? edit.Strength : '') + '">' +
-      '<label for="mp_p">Present (normal hours)</label><input id="mp_p" type="number" min="1" step="1" inputmode="numeric" value="' + (edit ? edit.Present : '') + '">' +
-      '<label for="mp_h">Normal working hours</label><input id="mp_h" type="number" min="0.5" max="24" step="0.5" inputmode="decimal" value="' + (edit ? edit.Hours : r.shiftHours) + '">' +
-      '<label for="mp_o1">OT present, 6:00 – 7:30 PM (1.5 h)</label><input id="mp_o1" type="number" min="0" step="1" inputmode="numeric" value="' + (edit && edit.OT1 ? edit.OT1 : '') + '" placeholder="0">' +
-      '<label for="mp_o2">OT present, from 8:00 PM</label><input id="mp_o2" type="number" min="0" step="1" inputmode="numeric" value="' + (edit && edit.OT2 ? edit.OT2 : '') + '" placeholder="0">' +
-      '<label for="mp_e">OT from 8:00 PM ends at</label><select id="mp_e">' + ends.map(function (v) { return '<option value="' + v + '"' + ((edit && edit.OT2End ? edit.OT2End : 22) === v ? ' selected' : '') + '>' + hrLabel(v) + '</option>'; }).join('') + '</select>' +
-      '<label for="mp_r">Remarks (optional)</label><input id="mp_r" maxlength="100" value="' + esc(edit ? edit.Remarks : '') + '">' +
-      '<div class="hint" id="mp_i"></div>' +
-      '<div class="row"><button type="button" class="btn ghost" id="mp_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
-      function info() {
-        var s = Number($('#mp_s').value) || 0, p = Number($('#mp_p').value) || 0, h = Number($('#mp_h').value) || 0, o1 = Number($('#mp_o1').value) || 0, o2 = Number($('#mp_o2').value) || 0, en = Number($('#mp_e').value) || 22;
-        var mh = p * h + o1 * 1.5 + (o2 ? o2 * (en - 20) : 0);
-        $('#mp_i').innerHTML = (s ? 'Absent <b>' + Math.max(0, s - p) + '</b> (' + (Math.round(Math.max(0, s - p) / s * 1000) / 10) + '%)' : 'Enter the strength to see the absentee %') + ' · man-hours <b>' + fmtNum(Math.round(mh * 10) / 10) + '</b>' + (p > s && s ? ' <span style="color:var(--bad)">· present is more than strength</span>' : '');
-        $('#mp_e').disabled = !o2;
+  /* normal working time: Date + Process, then one row per unit (Strength / Present) – the same layout as the paper grid */
+  function manGrid(o) {
+    var r = S.mp, writable = r.procs.filter(function (p) { return p.canWrite; });
+    if (!writable.length) return toast('You cannot enter manpower', 'bad');
+    var proc = o.process && writable.some(function (p) { return p.k === o.process; }) ? o.process : writable[0].k, day = o.date || todayStr();
+    openModal('<h3>Regular working time (9 AM – 6 PM)</h3><form id="mg">' +
+      '<div class="mgf"><label>Date <input id="mg_d" type="date" max="' + todayStr() + '" value="' + esc(day) + '"></label>' +
+      '<label class="tf-l">Process <select id="mg_p">' + procOpts(r, proc, true) + '</select></label>' +
+      '<label class="tf-l">Working hours <input id="mg_h" type="number" min="0.5" max="24" step="0.5" inputmode="decimal" value="' + r.shiftHours + '"></label></div>' +
+      '<table class="nocsv mgt"><thead><tr><th>Unit</th><th>Strength</th><th>Present</th></tr></thead><tbody>' +
+      r.units.map(function (u, i) { return '<tr><td><b>' + esc(u.name) + '</b></td><td><input class="mg_s" data-u="' + esc(u.id) + '" type="number" min="0" step="1" inputmode="numeric"></td><td><input class="mg_p" data-u="' + esc(u.id) + '" type="number" min="0" step="1" inputmode="numeric"></td></tr>'; }).join('') +
+      '</tbody></table><div class="hint" id="mg_i"></div>' +
+      '<label for="mg_r">Remarks (optional, applied to the units you fill in)</label><input id="mg_r" maxlength="100">' +
+      '<div class="row"><button type="button" class="btn ghost" id="mg_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
+      function fill() {
+        var d = $('#mg_d').value, p = $('#mg_p').value, n = 0, hrs = null;
+        Array.prototype.forEach.call(document.querySelectorAll('.mg_s'), function (si) {
+          var u = si.getAttribute('data-u'), pi = document.querySelector('.mg_p[data-u="' + u + '"]');
+          var ex = r.rows.filter(function (x) { return x.Unit_ID === u && x.Date === d && x.Process === p; })[0];
+          if (ex) { si.value = ex.Strength == null ? '' : ex.Strength; pi.value = ex.Present; n++; hrs = ex.Hours; }
+          else {
+            var last = r.rows.filter(function (x) { return x.Unit_ID === u && x.Process === p && x.Date < d && x.Strength; })[0];   /* newest earlier entry: strength carries over */
+            si.value = last ? last.Strength : ''; pi.value = '';
+          }
+        });
+        if (hrs != null) $('#mg_h').value = hrs;
+        $('#mg_i').innerHTML = n ? 'Existing entries for this date and process are filled in – change them and save.' : 'Strength is copied from the last entry of each unit. Leave a unit empty to skip it.';
       }
-      ['mp_s', 'mp_p', 'mp_h', 'mp_o1', 'mp_o2', 'mp_e'].forEach(function (id) { $('#' + id).oninput = info; $('#' + id).onchange = info; });
-      info();
-      $('#mp_x').onclick = closeModal;
-      $('#mp').onsubmit = function (ev) {
+      var mm = document.querySelector('.modal'); if (mm) mm.style.maxWidth = '560px';
+      $('#mg_d').onchange = fill; $('#mg_p').onchange = fill; fill();
+      $('#mg_x').onclick = closeModal;
+      $('#mg').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { unitId: $('#mp_u').value, date: $('#mp_d').value, strength: $('#mp_s').value, present: $('#mp_p').value, hours: $('#mp_h').value, ot1: $('#mp_o1').value, ot2: $('#mp_o2').value,
-                    ot2End: $('#mp_o2').value && Number($('#mp_o2').value) > 0 ? $('#mp_e').value : '', remarks: $('#mp_r').value };
-        api('manSave', pay).then(function (d) { closeModal(); toast(d.updated ? 'Manpower updated' : 'Manpower saved', 'ok'); return loadMan(); }).catch(fail);
+        var rows = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.mg_p'), function (pi) {
+          var u = pi.getAttribute('data-u'), si = document.querySelector('.mg_s[data-u="' + u + '"]');
+          if (pi.value !== '') rows.push({ unitId: u, strength: si.value, present: pi.value });
+        });
+        api('manGridSave', { date: $('#mg_d').value, process: $('#mg_p').value, hours: $('#mg_h').value, remarks: $('#mg_r').value, rows: rows }).then(function (d) {
+          closeModal(); toast('Saved · ' + d.created + ' new, ' + d.updated + ' changed' + (d.unchanged ? ', ' + d.unchanged + ' unchanged' : ''), 'ok'); return loadMan();
+        }).catch(fail);
+      };
+    });
+  }
+  /* OT working time: Date + Process + slot From / To, then one row per unit (employees) */
+  function otGrid(o) {
+    var r = S.mp, writable = r.procs.filter(function (p) { return p.canWrite; });
+    if (!writable.length) return toast('You cannot enter manpower', 'bad');
+    var proc = o.process && writable.some(function (p) { return p.k === o.process; }) ? o.process : writable[0].k, day = o.date || todayStr();
+    var froms = [8, 8.5]; for (var f = 18; f < 24; f += 0.5) froms.push(f);
+    var from0 = o.from != null ? o.from : 18, to0 = o.to != null ? o.to : 19.5;
+    function toOpts(from, cur) {
+      var end = from < 9 ? 9 : 24, h = '';
+      for (var t = from + 0.5; t <= end; t += 0.5) h += '<option value="' + t + '"' + (t === cur ? ' selected' : '') + '>' + hrLabel(t) + '</option>';
+      return h;
+    }
+    openModal('<h3>OT working time</h3><form id="og">' +
+      '<div class="mgf"><label>Date <input id="og_d" type="date" max="' + todayStr() + '" value="' + esc(day) + '"></label>' +
+      '<label class="tf-l">Process <select id="og_p">' + procOpts(r, proc, true) + '</select></label>' +
+      '<label class="tf-l">Slot from <select id="og_f">' + froms.map(function (v) { return '<option value="' + v + '"' + (v === from0 ? ' selected' : '') + '>' + hrLabel(v) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="tf-l">Slot to <select id="og_t">' + toOpts(from0, to0) + '</select></label></div>' +
+      '<div class="hint" id="og_h"></div>' +
+      '<table class="nocsv mgt"><thead><tr><th>Unit</th><th>OT employees</th></tr></thead><tbody>' +
+      r.units.map(function (u) { return '<tr><td><b>' + esc(u.name) + '</b></td><td><input class="og_c" data-u="' + esc(u.id) + '" type="number" min="0" step="1" inputmode="numeric"></td></tr>'; }).join('') +
+      '</tbody></table>' +
+      '<label for="og_r">Remarks (optional, applied to the units you fill in)</label><input id="og_r" maxlength="100">' +
+      '<div class="row"><button type="button" class="btn ghost" id="og_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
+      function info() { var hrs = Number($('#og_t').value) - Number($('#og_f').value); $('#og_h').innerHTML = 'OT hours for this slot: <b>' + hrs + '</b> · man-hours = employees × ' + hrs; }
+      function fill() {
+        var d = $('#og_d').value, p = $('#og_p').value, fr = Number($('#og_f').value), to = Number($('#og_t').value), n = 0;
+        Array.prototype.forEach.call(document.querySelectorAll('.og_c'), function (ci) {
+          var u = ci.getAttribute('data-u'), ex = r.ot.filter(function (x) { return !x.Legacy && x.Unit_ID === u && x.Date === d && x.Process === p && x.From === fr && x.To === to; })[0];
+          ci.value = ex ? ex.Count : ''; if (ex) n++;
+        });
+        info();
+      }
+      var mo = document.querySelector('.modal'); if (mo) mo.style.maxWidth = '560px';
+      $('#og_f').onchange = function () { var fr = Number(this.value), cur = Number($('#og_t').value); $('#og_t').innerHTML = toOpts(fr, cur > fr ? cur : fr + 0.5); fill(); };
+      $('#og_t').onchange = fill; $('#og_d').onchange = fill; $('#og_p').onchange = fill; fill();
+      $('#og_x').onclick = closeModal;
+      $('#og').onsubmit = function (ev) {
+        ev.preventDefault();
+        var rows = [];
+        Array.prototype.forEach.call(document.querySelectorAll('.og_c'), function (ci) { if (ci.value !== '') rows.push({ unitId: ci.getAttribute('data-u'), count: ci.value }); });
+        api('otGridSave', { date: $('#og_d').value, process: $('#og_p').value, from: $('#og_f').value, to: $('#og_t').value, remarks: $('#og_r').value, rows: rows }).then(function (d) {
+          closeModal(); toast('OT saved · ' + d.created + ' new, ' + d.updated + ' changed' + (d.unchanged ? ', ' + d.unchanged + ' unchanged' : ''), 'ok'); return loadMan();
+        }).catch(fail);
       };
     });
   }
@@ -2489,7 +2573,7 @@
         u.Days.map(function (d) {
           var c = effClass(d.Eff, r.alertPct);
           return '<tr><td data-l="Date">' + esc(dfmt(d.Date)) + (d.Working ? '' : ' <span class="badge">Off day</span>') + '</td><td data-l="Present / strength">' + (d.NoManpower ? '<span class="badge warn">Missing</span>' : fmtNum(d.Present) + (d.Strength ? ' / ' + fmtNum(d.Strength) : '')) + '</td>' +
-            '<td data-l="Absent">' + pctOrDash(d.AbsentPct) + '</td><td data-l="OT present">' + (d.OT1 || d.OT2 ? fmtNum(d.OT1) + ' + ' + fmtNum(d.OT2) : '-') + (d.OtNoManpower ? '<div class="cellsub" style="color:var(--warn)">OT output, no OT manpower</div>' : '') + '</td>' +
+            '<td data-l="Absent">' + pctOrDash(d.AbsentPct) + '</td><td data-l="OT present">' + (d.OT1 || d.OT2 || d.OtHrs ? (d.OT1 || d.OT2 ? fmtNum(d.OT1) + ' + ' + fmtNum(d.OT2) : '') + (d.OtHrs ? '<div class="cellsub">' + d.OtHrs + ' man-hrs</div>' : '') : '-') + (d.OtNoManpower ? '<div class="cellsub" style="color:var(--warn)">OT output, no OT manpower</div>' : '') + '</td>' +
             '<td data-l="Output">' + fmtNum(d.Out) + (d.OutOt ? '<div class="cellsub">OT ' + fmtNum(d.OutOt) + '</div>' : '') + (d.NoSmv ? '<div class="cellsub">no SMV: ' + esc(d.NoSmvCats.join(', ') || 'unknown') + '</div>' : '') + '</td><td data-l="Produced min">' + fmtNum(d.ProdMin) + '</td><td data-l="Available min">' + (d.NoManpower ? '-' : fmtNum(d.AvailMin)) + '</td>' +
             '<td data-l="Efficiency">' + (d.Eff == null ? '-' : '<div class="ebar ' + c + '"><i style="width:' + Math.min(100, d.Eff) + '%"></i></div><b>' + d.Eff + '%</b>') + '</td>' +
             '<td class="acts-td"><div class="acts"><button class="btn sm ghost" type="button" data-ud="' + esc(u.Unit_ID) + '" data-dd="' + esc(d.Date) + '">Details</button></div></td></tr>';
@@ -2520,7 +2604,8 @@
     else h += '<div class="jr"><div class="jc"><h4>Normal hours</h4><div class="kv"><span>Strength</span><b>' + (m.Strength == null ? '-' : fmtNum(m.Strength)) + '</b></div><div class="kv"><span>Present</span><b>' + fmtNum(m.Present) + '</b></div><div class="kv"><span>Absent</span><b>' + (m.Absent == null ? '-' : m.Absent + ' (' + m.AbsentPct + '%)') + '</b></div><div class="kv"><span>Hours</span><b>' + m.Hours + '</b></div><div class="kv"><span>Available min</span><b>' + fmtNum(mn.Normal) + '</b></div><div class="kv"><span>Efficiency</span><b>' + pctOrDash(t.EffNormal) + '</b></div></div>' +
       '<div class="jc"><h4>OT 6:00 – 7:30 PM</h4><div class="kv"><span>Present</span><b>' + fmtNum(m.OT1) + '</b></div><div class="kv"><span>Hours</span><b>1.5</b></div><div class="kv"><span>Available min</span><b>' + fmtNum(mn.Ot1) + '</b></div></div>' +
       '<div class="jc"><h4>OT from 8:00 PM</h4><div class="kv"><span>Present</span><b>' + fmtNum(m.OT2) + '</b></div><div class="kv"><span>Ends at</span><b>' + (m.OT2 ? esc(hrLabel(m.OT2End)) : '-') + '</b></div><div class="kv"><span>Hours</span><b>' + (m.OT2Hours || 0) + '</b></div><div class="kv"><span>Available min</span><b>' + fmtNum(mn.Ot2) + '</b></div></div>' +
-      '<div class="jc"><h4>OT total</h4><div class="kv"><span>Available min</span><b>' + fmtNum(mn.Ot1 + mn.Ot2) + '</b></div><div class="kv"><span>OT output</span><b>' + fmtNum(t.OtOut) + '</b></div><div class="kv"><span>OT efficiency</span><b>' + pctOrDash(t.EffOt) + '</b></div></div></div>';
+      (d.OtSlots && d.OtSlots.length ? '<div class="jc"><h4>OT slots entered</h4>' + d.OtSlots.map(function (z) { return '<div class="kv"><span>' + esc(z.Slot) + '</span><b>' + fmtNum(z.Count) + ' × ' + z.Hours + ' h</b></div>'; }).join('') + '</div>' : '') +
+      '<div class="jc"><h4>OT total</h4><div class="kv"><span>Available min</span><b>' + fmtNum(mn.Ot1 + mn.Ot2 + (mn.OtSlots || 0)) + '</b></div><div class="kv"><span>OT output</span><b>' + fmtNum(t.OtOut) + '</b></div><div class="kv"><span>OT efficiency</span><b>' + pctOrDash(t.EffOt) + '</b></div></div></div>';
     h += '<h3 class="sec">Lots worked (hourly output)</h3>';
     if (!d.Lots.length) h += '<div class="card empty">No hourly output on this day.</div>';
     else {
