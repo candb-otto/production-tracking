@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     v($('#view'));
   }
 
@@ -239,7 +239,7 @@
       } : null);
       if (unitGet) {
         var useen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = unitGet(tr); if (v) useen[v] = 1; });
-        if (Object.keys(useen).length >= 2) fcols.push({ i: unitCol, label: 'Unit', vals: Object.keys(useen).sort(), get: unitGet });
+        if (Object.keys(useen).length >= 1) fcols.push({ i: unitCol, label: 'Unit', vals: Object.keys(useen).sort(), get: unitGet });
       }
       ths.forEach(function (t, i) {
         if (i === unitCol || (unitAttr && /unit/i.test(t))) return;
@@ -365,6 +365,9 @@
       apply(true);
     });
   }
+  /* page access from the server menu: 'E' edit, 'V' view only */
+  function pageEdit(k) { var m = S.menu.filter(function (x) { return x.key === k; })[0]; return !!m && (m.lv ? m.lv === 'E' : true); }
+  function deptNames(v) { var a = Array.isArray(v) ? v : String(v || '').split(','); return a.map(function (d) { d = String(d).trim(); return DEPT[d] || d; }).filter(Boolean).join(', '); }
   function cur_() { var m = S.menu.filter(function (x) { return x.key === S.page; })[0]; return m ? (m.label || m.title || m.key) : ''; }
   (function () {
     /* watch the whole page (not just #view): signing out and in builds a new #view, and the bars must come back every time */
@@ -622,7 +625,7 @@
   };
   var CORR_ROWS = {};
   function corrBtn(mod, x) {
-    if (!S.user || (S.user.role !== 'ADMIN' && S.user.role !== 'PROD_ADMIN') || !CF[mod]) return '';
+    if (!S.user || (S.user.role !== 'ADMIN' && S.user.role !== 'PROD_ADMIN') || !CF[mod] || !pageEdit(S.page)) return '';
     CORR_ROWS[mod + '|' + x._id] = x;
     return '<button class="btn sm ghost" data-corr="' + mod + '|' + esc(x._id) + '">Correct</button>';
   }
@@ -659,7 +662,7 @@
     el.innerHTML = '<div class="page-h"><h2>Welcome, ' + esc(u.name) + '</h2></div>' +
       '<div class="grid"><div class="card kv">Role<b>' + esc(ROLE[u.role] || u.role) + '</b></div>' +
       '<div class="card kv">Unit<b>' + esc(u.unit ? (u.unitName || u.unit) : 'All units') + '</b></div>' +
-      '<div class="card kv">Department<b>' + esc(DEPT[u.dept] || (u.dept ? u.dept : 'All')) + '</b></div></div><div id="dh"></div>';
+      '<div class="card kv">Department<b>' + esc(deptNames(u.depts || u.dept) || 'All') + '</b></div></div><div id="dh"></div>';
     loadDash();
   }
   function loadDash() {
@@ -762,7 +765,7 @@
       rows.map(function (u) {
         return '<tr><td data-l="Code"><b>' + esc(u.Employee_Code) + '</b></td><td data-l="Name">' + esc(u.Employee_Name) + '</td>' +
           '<td data-l="Role"><span class="badge">' + esc(ROLE[u.Role] || u.Role) + '</span></td>' +
-          '<td data-l="Department">' + esc(DEPT[u.Department] || '-') + '</td><td data-l="Unit">' + esc(unitText(u.Unit_ID, u.Role)) + '</td>' +
+          '<td data-l="Department">' + esc(deptNames(u.Department) || '-') + '</td><td data-l="Unit">' + esc(unitText(u.Unit_ID, u.Role)) + '</td>' +
           '<td data-l="Status"><span class="badge ' + (u.Active ? 'ok' : 'off') + '">' + (u.Active ? 'Active' : 'Inactive') + '</span></td>' +
           '<td data-l="Last login">' + esc(dfmt(u.Last_Login) || '-') + '</td>' +
           '<td class="acts-td"><div class="acts"><button class="btn sm ghost" data-a="edit" data-id="' + esc(u.User_ID) + '">Edit</button>' +
@@ -780,7 +783,8 @@
   function userForm(u) {
     var isNew = !u; u = u || { Role: 'DEPT_USER', Active: true };
     var roleOpts = Object.keys(ROLE).map(function (k) { return '<option value="' + k + '"' + (u.Role === k ? ' selected' : '') + '>' + ROLE[k] + '</option>'; }).join('');
-    var deptOpts = '<option value="">Select department</option>' + Object.keys(DEPT).map(function (k) { return '<option value="' + k + '"' + (u.Department === k ? ' selected' : '') + '>' + DEPT[k] + '</option>'; }).join('');
+    var myD = String(u.Department || '').split(',').map(function (x) { return x.trim(); });
+    var deptOpts = Object.keys(DEPT).map(function (k) { return '<label class="chk"><input type="checkbox" class="f_d" value="' + k + '"' + (myD.indexOf(k) >= 0 ? ' checked' : '') + '> ' + esc(DEPT[k]) + '</label>'; }).join('');
     var mine = String(u.Unit_ID || '').split(',').map(function (x) { return x.trim(); });
     var unitOpts = S.units.map(function (x) { return '<label class="chk"><input type="checkbox" class="f_u" value="' + esc(x.Unit_ID) + '"' + (mine.indexOf(x.Unit_ID) >= 0 ? ' checked' : '') + '> ' + esc(x.Unit_Name) + '</label>'; }).join('');
     openModal('<h3>' + (isNew ? 'Add user' : 'Edit user') + '</h3><form id="uf">' +
@@ -788,7 +792,7 @@
       '<label>Name</label><input id="f_n" value="' + esc(u.Employee_Name || '') + '" required maxlength="60" autocomplete="off">' +
       '<label>Email (optional)</label><input id="f_e" type="email" value="' + esc(u.Email || '') + '" autocomplete="off">' +
       '<label>Role</label><select id="f_r">' + roleOpts + '</select>' +
-      '<div id="f_dw"><label>Department</label><select id="f_d">' + deptOpts + '</select></div>' +
+      '<div id="f_dw"><label>Department(s)</label><div class="chkbox">' + deptOpts + '</div><div class="hint">Tick every department this user records for. Page-by-page access is set on the User Access page.</div></div>' +
       '<div id="f_uw"><label>Unit(s)</label><div class="chkbox">' + unitOpts + '</div><div class="hint">Tick every unit this user works for, e.g. A1 and A2 for a shared Cutting or Ironing team.</div>' +
       (S.units.length ? '' : '<div class="hint">No units yet. Add a row in the Unit_Master sheet first.</div>') + '</div>' +
       (isNew ? '<label>Password</label><input id="f_p" type="password" autocomplete="new-password" minlength="6" required><div class="hint">At least 6 characters. The user can change it after signing in.</div>' : '') +
@@ -804,7 +808,7 @@
         $('#uf').onsubmit = function (ev) {
           ev.preventDefault();
           var fields = { Employee_Code: $('#f_c').value, Employee_Name: $('#f_n').value, Email: $('#f_e').value,
-            Role: $('#f_r').value, Department: $('#f_d').value,
+            Role: $('#f_r').value, Department: [].slice.call(document.querySelectorAll('.f_d')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }).join(','),
             Unit_ID: [].slice.call(document.querySelectorAll('.f_u')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }).join(',') };
           var call = isNew ? api('createUser', { fields: fields, password: $('#f_p').value })
                            : api('updateUser', { userId: u.User_ID, fields: fields });
@@ -837,6 +841,150 @@
     });
   }
 
+
+  /* ---------- User Access (Admin): role, departments, units and page-by-page view / edit ---------- */
+  var LVN = { E: 'Edit', V: 'View', '': 'No access' };
+  function acCanEdit(role, depts, m) {
+    if (role === 'PM' || m.wroles.indexOf(role) < 0) return false;
+    if (role === 'DEPT_USER') return !m.wd || m.wd.some(function (d) { return depts.indexOf(d) >= 0; });
+    return true;
+  }
+  function acDefault(role, depts, m) {
+    if (m.roles.indexOf(role) < 0) return '';
+    if (role === 'DEPT_USER' && m.depts && !m.depts.some(function (d) { return depts.indexOf(d) >= 0; })) return '';
+    return acCanEdit(role, depts, m) ? 'E' : 'V';
+  }
+  function acMax(role, depts, m) {
+    if (m.adminOnly) return role === 'ADMIN' ? 'E' : '';
+    if (m.admin) return acDefault(role, depts, m);
+    return acCanEdit(role, depts, m) ? 'E' : 'V';
+  }
+  function acSummary(u) {
+    if (u.Role === 'ADMIN') return 'Every page';
+    if (!u.Pages) return 'Default for role' + (u.Role === 'DEPT_USER' ? ' & department' : '');
+    var e = 0, v = 0; Object.keys(u.Pages).forEach(function (k) { if (u.Pages[k] === 'E') e++; else if (u.Pages[k] === 'V') v++; });
+    return 'Custom: ' + (e + v) + ' page(s) · ' + e + ' edit, ' + v + ' view';
+  }
+  function viewAccess(el) {
+    el.innerHTML = '<div class="page-h"><h2>User Access</h2></div><div class="mhelp">Set each user\'s role, department(s), unit(s) and the pages they can open – <b>view only</b> or <b>edit</b>. Changes apply at once: the user is signed out and signs in again with the new access.</div><div id="ab"></div>';
+    loadAccess();
+  }
+  function loadAccess() { return api('accessInfo').then(function (r) { S.ac = r; paintAccess(); }).catch(fail); }
+  function paintAccess() {
+    var r = S.ac, h = '';
+    if (!r.setup.pageCol) h += '<div class="card" style="border-left:4px solid var(--warn);margin:0 0 12px"><b>One-time setup:</b> add a column named <b>Page_Access</b> to the <b>Users</b> sheet (row 1, any free column), then press Reload data. Until then you can change role, departments and units, but not page access.</div>';
+    h += '<table><thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Department(s)</th><th>Unit(s)</th><th>Page access</th><th>Status</th><th></th></tr></thead><tbody>' +
+      r.users.map(function (u) {
+        return '<tr><td data-l="Code"><b>' + esc(u.Employee_Code) + '</b></td><td data-l="Name">' + esc(u.Employee_Name) + '</td>' +
+          '<td data-l="Role"><span class="badge">' + esc(ROLE[u.Role] || u.Role) + '</span></td>' +
+          '<td data-l="Department(s)">' + esc(u.Role === 'DEPT_USER' ? deptNames(u.Depts) : '-') + '</td>' +
+          '<td data-l="Unit(s)">' + esc(acUnits(u)) + '</td>' +
+          '<td data-l="Page access">' + esc(acSummary(u)) + '</td>' +
+          '<td data-l="Status"><span class="badge ' + (u.Active ? 'ok' : 'off') + '">' + (u.Active ? 'Active' : 'Inactive') + '</span></td>' +
+          '<td class="acts-td"><div class="acts"><button class="btn sm" style="white-space:nowrap" data-ac="' + esc(u.User_ID) + '">Edit access</button></div></td></tr>';
+      }).join('') + '</tbody></table>';
+    $('#ab').innerHTML = h;
+    $('#ab').onclick = function (e) {
+      var id = e.target.getAttribute && e.target.getAttribute('data-ac'); if (!id) return;
+      var u = S.ac.users.filter(function (x) { return x.User_ID === id; })[0]; if (u) accessForm(u);
+    };
+  }
+  function acUnits(u) {
+    if (u.Role === 'ADMIN' || u.Role === 'PROD_ADMIN') return 'All units';
+    return String(u.Unit_ID || '').split(',').map(function (one) { one = one.trim(); var hit = S.ac.units.filter(function (x) { return x.Unit_ID === one; })[0]; return hit ? hit.Unit_Name : one; }).filter(Boolean).join(', ') || '-';
+  }
+  function accessForm(u) {
+    var r = S.ac, st = { role: u.Role, depts: (u.Depts || []).slice(), custom: !!u.Pages, pages: Object.assign({}, u.Pages || {}) };
+    var myU = String(u.Unit_ID || '').split(',').map(function (x) { return x.trim(); });
+    openModal('<h3>Access – ' + esc(u.Employee_Name) + ' (' + esc(u.Employee_Code) + ')</h3><form id="acf">' +
+      '<div class="mgf"><label>Role<select id="ac_r">' + r.roles.map(function (k) { return '<option value="' + k + '"' + (u.Role === k ? ' selected' : '') + '>' + esc(ROLE[k] || k) + '</option>'; }).join('') + '</select></label></div>' +
+      '<div id="ac_dw"><label>Department(s)</label><div class="chkbox">' + r.depts.map(function (k) { return '<label class="chk"><input type="checkbox" class="ac_d" value="' + k + '"' + (st.depts.indexOf(k) >= 0 ? ' checked' : '') + '> ' + esc(DEPT[k] || k) + '</label>'; }).join('') + '</div><div class="hint">The departments this user records for (Edit is possible only on pages of these departments).</div></div>' +
+      '<div id="ac_uw"><label>Unit(s)</label><div class="chkbox">' + r.units.map(function (x) { return '<label class="chk"><input type="checkbox" class="ac_u" value="' + esc(x.Unit_ID) + '"' + (myU.indexOf(x.Unit_ID) >= 0 ? ' checked' : '') + '> ' + esc(x.Unit_Name) + '</label>'; }).join('') + '</div></div>' +
+      '<div id="ac_ua" class="hint" style="margin:8px 0">Admin and Production Admin see all units.</div>' +
+      '<label style="margin-top:12px">Pages</label><div id="ac_m" class="chkbox"><label class="chk"><input type="radio" name="ac_m" value="d"' + (st.custom ? '' : ' checked') + '> Default for the role and department(s)</label>' +
+      '<label class="chk"><input type="radio" name="ac_m" value="c"' + (st.custom ? ' checked' : '') + (r.setup.pageCol ? '' : ' disabled') + '> Choose pages</label></div>' +
+      (r.setup.pageCol ? '' : '<div class="hint">Add the Page_Access column to the Users sheet to choose pages.</div>') +
+      '<div id="ac_tools" class="rlinks" style="margin-top:8px"><button type="button" class="btn sm ghost" data-fill="def">Fill with defaults</button><button type="button" class="btn sm ghost" data-fill="view">All view</button><button type="button" class="btn sm ghost" data-fill="max">All allowed (edit where possible)</button><button type="button" class="btn sm ghost" data-fill="none">Clear all</button></div>' +
+      '<div id="ac_g"></div>' +
+      '<div class="row"><button type="button" class="btn ghost" id="ac_x">Cancel</button><button class="btn" type="submit">Save access</button></div></form>',
+      function (mo) {
+        mo.style.maxWidth = '720px';
+        function depts() { return [].slice.call(document.querySelectorAll('.ac_d')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }); }
+        function grid() {
+          var role = st.role, ds = st.depts, h = '';
+          $('#ac_dw').hidden = role !== 'DEPT_USER';
+          $('#ac_uw').hidden = !(role === 'PM' || role === 'DEPT_USER');
+          $('#ac_ua').hidden = !(role === 'ADMIN' || role === 'PROD_ADMIN');
+          $('#ac_m').hidden = role === 'ADMIN';
+          var custom = st.custom && role !== 'ADMIN';
+          $('#ac_tools').hidden = !custom;
+          if (role === 'ADMIN') { $('#ac_g').innerHTML = '<div class="hint" style="margin:8px 0">An Admin can open and edit every page.</div>'; return; }
+          var groups = [], seen = {};
+          r.pages.forEach(function (m) { if (!seen[m.group]) { seen[m.group] = 1; groups.push(m.group); } });
+          h += '<table class="mgt acg nocsv"><thead><tr><th>Page</th><th>No access</th><th>View</th><th>Edit</th></tr></thead><tbody>';
+          groups.forEach(function (g) {
+            var list = r.pages.filter(function (m) { return m.group === g && !(m.adminOnly); });
+            if (!list.length) return;
+            h += '<tr><td colspan="4" style="background:#F7F9FC;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em">' + esc(g) + '</td></tr>';
+            list.forEach(function (m) {
+              var max = acMax(role, ds, m), def = acDefault(role, ds, m);
+              if (m.always) { h += '<tr><td>' + esc(m.label) + '</td><td colspan="3" class="hint">Always available</td></tr>'; return; }
+              var cur = custom ? (st.pages[m.key] || '') : def;
+              if (cur === 'E' && max !== 'E') cur = max ? 'V' : '';
+              if (cur && !max) cur = '';
+              h += '<tr><td>' + esc(m.label) + (custom && def !== cur ? ' <span class="badge">changed</span>' : '') + '</td>' + ['', 'V', 'E'].map(function (lv) {
+                var ok = custom && (lv === '' || (lv === 'V' && max) || (lv === 'E' && max === 'E'));
+                return '<td data-l="' + ({ '': 'None', V: 'View', E: 'Edit' })[lv] + '"><label class="chk" title="' + (ok || !custom ? '' : 'Not possible for this role / department') + '"><input type="radio" name="pa_' + m.key + '" value="' + lv + '"' + (cur === lv ? ' checked' : '') + (ok ? '' : ' disabled') + '></label></td>';
+              }).join('') + '</tr>';
+            });
+          });
+          h += '</tbody></table>';
+          if (!custom) h = '<div class="hint" style="margin:6px 0">These are the pages the role' + (role === 'DEPT_USER' ? ' and department(s)' : '') + ' give. Choose “Choose pages” to change them.</div>' + h;
+          else h = '<div class="hint" style="margin:6px 0">Dashboard and Change password are always available. View lets the user open the page and export; Edit also lets them add, change and cancel entries.</div>' + h;
+          $('#ac_g').innerHTML = h;
+        }
+        function readGrid() {
+          if (!st.custom) return;
+          r.pages.forEach(function (m) { var c = document.querySelector('input[name="pa_' + m.key + '"]:checked'); if (c) { if (c.value) st.pages[m.key] = c.value; else delete st.pages[m.key]; } });
+        }
+        function fill(kind) {
+          st.pages = {};
+          r.pages.forEach(function (m) {
+            if (m.always || m.adminOnly) return;
+            var max = acMax(st.role, st.depts, m), v = kind === 'def' ? acDefault(st.role, st.depts, m) : kind === 'view' ? (max ? 'V' : '') : kind === 'max' ? max : '';
+            if (v) st.pages[m.key] = v;
+          });
+          grid();
+        }
+        $('#ac_r').onchange = function () { readGrid(); st.role = $('#ac_r').value; grid(); };
+        Array.prototype.forEach.call(document.querySelectorAll('.ac_d'), function (c) { c.onchange = function () { readGrid(); st.depts = depts(); grid(); }; });
+        Array.prototype.forEach.call(document.querySelectorAll('input[name=ac_m]'), function (c) {
+          c.onchange = function () {
+            var was = st.custom; st.custom = $('input[name=ac_m]:checked').value === 'c';
+            if (st.custom && !was && !Object.keys(st.pages).length) { fill('def'); return; }
+            grid();
+          };
+        });
+        $('#ac_tools').onclick = function (e) { var k = e.target.getAttribute && e.target.getAttribute('data-fill'); if (k) fill(k); };
+        $('#ac_g').onchange = function () { readGrid(); grid(); };
+        $('#ac_x').onclick = closeModal;
+        grid();
+        $('#acf').onsubmit = function (ev) {
+          ev.preventDefault(); readGrid();
+          var pages = null;
+          if (st.custom && st.role !== 'ADMIN') {
+            pages = {};
+            r.pages.forEach(function (m) { var v = st.pages[m.key]; var max = acMax(st.role, st.depts, m); if (!v || !max || m.always || m.adminOnly) return; pages[m.key] = v === 'E' && max === 'E' ? 'E' : 'V'; });
+          }
+          var units = [].slice.call(document.querySelectorAll('.ac_u')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
+          api('accessSave', { userId: u.User_ID, role: st.role, depts: st.role === 'DEPT_USER' ? st.depts : [], units: units, pages: pages }).then(function (res) {
+            closeModal(); toast(res.changed ? 'Access saved – ' + u.Employee_Name + ' signs in again to use it' : 'No change', 'ok');
+            if (u.User_ID === S.user.id && res.changed) { endSession('Your access changed. Please sign in again.'); return; }
+            return loadAccess();
+          }).catch(fail);
+        };
+      });
+  }
 
   /* ---------- masters (generic, driven by server definitions) ---------- */
   function viewMasters(el) {
@@ -877,7 +1025,7 @@
     return hit && hit.label ? hit.label + ' (' + v + ')' : v;
   }
   function paintMaster() {
-    var d = mdef(), write = S.user.role === 'ADMIN';
+    var d = mdef(), write = S.user.role === 'ADMIN' && pageEdit('masters');
     var head = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">' + esc(d.help) + '</div>' +
       (write && !d.editOnly ? '<button class="btn" id="madd">+ Add</button>' : '') + '</div>';
     $('#mh').innerHTML = head;
@@ -975,7 +1123,7 @@
   function srcName(x) { return x === 'JOB_WORKER' ? 'Job worker' : (x === 'WAREHOUSE' ? 'Warehouse (re-ironing)' : (x || '')); }
   function ltName(t, src) { if (t === 'JOB_WORK') return 'job work'; return t === 'IRON_ONLY' ? 'ironing only' + (src ? ' · ' + srcName(src) : '') : String(t || '').toLowerCase(); }
   function viewPlanning(el) {
-    var canWrite = S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN';
+    var canWrite = (S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN') && pageEdit('planning');
     S.ptab = canWrite ? (S.ptab || 'plans') : 'plans';
     el.innerHTML = '<div class="page-h"><h2>Planning</h2></div>' +
       (canWrite ? '<div class="tabs" id="pt"><button class="tab" data-t="plans">Plans</button><button class="tab" data-t="grid">Plan grid</button><button class="tab" data-t="seasons">Seasons</button></div>' : '') +
@@ -989,7 +1137,7 @@
     loadPlanning();
   }
   function loadPlanning() {
-    var canWrite = S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN';
+    var canWrite = (S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN') && pageEdit('planning');
     if (canWrite) Array.prototype.forEach.call(document.querySelectorAll('#pt .tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-t') === S.ptab); });
     $('#ph').innerHTML = ''; $('#pb').innerHTML = '';
     var tab = S.ptab;
@@ -1345,9 +1493,9 @@
     var r = S.or, rows = r.rows;
     $('#oh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Enter the order quantity per category for each season, then use <b>Plan this</b> to split it into plans for units. Each plan is checked against the unit\'s capacity before it is confirmed. A plan can also be added directly in Planning without an order.</div>' +
       '<select id="of_s" style="max-width:220px"><option value="">All seasons</option>' + r.refs.Season_ID.map(function (o) { return '<option value="' + esc(o.id) + '"' + (S.of.seasonId === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>' +
-      '<button class="btn" id="oadd">+ Add order</button></div>';
+      (pageEdit('orders') ? '<button class="btn" id="oadd">+ Add order</button>' : '') + '</div>';
     $('#of_s').onchange = function () { S.of.seasonId = this.value; loadOrders(); };
-    $('#oadd').onclick = function () { orderForm(null); };
+    if ($('#oadd')) $('#oadd').onclick = function () { orderForm(null); };
     if (!rows.length) { $('#ob').innerHTML = '<div class="card empty">No orders yet. Click “+ Add order”.</div>'; return; }
     $('#ob').innerHTML = '<table><thead><tr><th>Season</th><th>Category</th><th>Order qty</th><th>Sewing cutoff</th><th>Planned</th><th>Still to plan</th><th>Plans</th><th></th></tr></thead><tbody>' +
       rows.map(function (o) {
@@ -1470,8 +1618,8 @@
   function paintIronLots() {
     var r = S.il, q = (S.ilq || '').toLowerCase();
     $('#il_h').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Lots that come back from a job worker or from the warehouse (re-ironing) and only go through <b>ironing, stickering and packing</b>. Create the plan first (Planning → Add plan → type <i>Ironing-only</i>), then add its lots here. The quantity is typed directly. A lot can be edited or cancelled until ironing starts on it.</div>' +
-      '<input id="il_q" placeholder="Search lot, plan…" style="max-width:200px" value="' + esc(S.ilq || '') + '"><button class="btn" id="il_add">+ Add lot</button></div>';
-    $('#il_add').onclick = function () { ironLotForm(null); };
+      '<input id="il_q" placeholder="Search lot, plan…" style="max-width:200px" value="' + esc(S.ilq || '') + '">' + (pageEdit('ironlots') ? '<button class="btn" id="il_add">+ Add lot</button>' : '') + '</div>';
+    if ($('#il_add')) $('#il_add').onclick = function () { ironLotForm(null); };
     $('#il_q').oninput = function () { S.ilq = this.value; paintIronLotRows(); };
     paintIronLotRows();
     var f = $('#il_q'); f.focus(); f.setSelectionRange(f.value.length, f.value.length);
@@ -2670,7 +2818,7 @@
     h += '<div class="hint">Rate = average of the last ' + r.avgDays + ' working days · buffer ' + r.buffer + '% · today ' + esc(dfmt(r.today)) + '</div>';
     h += rows.length ? '<table><thead><tr><th>Plan</th><th>Main cutoff</th><th>Qty</th>' + r.stages.map(function (s) { return '<th>' + esc(s.name) + '</th>'; }).join('') + '<th>Overall</th></tr></thead><tbody>' +
       rows.map(function (x) {
-        return '<tr><td data-l="Plan"><b>' + esc(x.Plan_ID) + '</b>' + (x.Plan_Type === 'IRON_ONLY' ? ' <span class="badge">Ironing only</span>' : (x.Plan_Type === 'JOB_WORK' ? ' <span class="badge">Job work</span>' : '')) + '<div class="cellsub">' + esc(x.Season) + ' · ' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Plan"><b>' + esc(x.Plan_ID) + '</b>' + (x.Plan_Type === 'IRON_ONLY' ? ' <span class="badge">Ironing only</span>' : (x.Plan_Type === 'JOB_WORK' ? ' <span class="badge">Job work</span>' : '')) + '<div class="cellsub">' + esc(x.Season) + ' · ' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Cutoff">' + esc(dfmt(x.Cutoff)) + '<div class="cellsub">' + (x.DaysLeft == null ? '' : (x.DaysLeft < 0 ? Math.abs(x.DaysLeft) + ' day(s) over' : x.DaysLeft + ' day(s) left')) + '</div></td>' +
           '<td data-l="Qty">' + fmtNum(x.Plan_Qty) + '<div class="cellsub">issued ' + fmtNum(x.Issued) + (x.NotIssued ? ' · <span style="color:var(--warn)">not issued ' + fmtNum(x.NotIssued) + '</span>' : '') + '</div></td>' +
           r.stages.map(function (s) {
@@ -2699,21 +2847,21 @@
     h += '<h3 class="sec">Waiting for layering</h3>' + (r.notStarted.lots ? '<div class="hint" style="margin-bottom:8px"><b>' + r.notStarted.lots + '</b> lot(s) / <b>' + fmtNum(r.notStarted.pcs) + '</b> pcs are lying as fabric, layering not started.</div>' : '');
     h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Width</th><th>Status</th><th>Balance</th><th>Laid</th><th>To lay</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Status">' + (x.Started ? '<span class="badge">Layering started</span>' : '<span class="badge warn">Not started</span><div class="cellsub">Fabric in unit ' + (x.WaitDays == null ? '' : x.WaitDays + ' day(s)') + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>') + '</td><td data-l="Balance">' + fmtNum(x.Balance) + '</td><td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="To lay"><b>' + fmtNum(x.PendingLay) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot is waiting for layering.</div>';
     h += '<h3 class="sec">Lays in progress</h3>';
     h += r.active.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Category</th><th>Table</th><th>Started</th><th>Running for</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.active.map(function (x) {
-        return '<tr><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Layer_Name ? '<div class="cellsub">' + esc(x.Layer_Name) + '</div>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '<div class="cellsub">To lay ' + fmtNum(x.PendingLay) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Layer_Name ? '<div class="cellsub">' + esc(x.Layer_Name) + '</div>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '<div class="cellsub">To lay ' + fmtNum(x.PendingLay) + '</div></td>' +
           '<td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '<div class="cellsub">' + esc(x.Unit) + '</div></td><td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Running for">' + esc(x.Duration || '-') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canAct ? '<button class="btn sm" data-done="' + esc(x._id) + '">Complete</button><button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lay in progress.</div>';
     h += '<h3 class="sec">Completed lays</h3>';
     h += r.done.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Category</th><th>Table</th><th>Started</th><th>Completed</th><th>Duration</th><th>Qty</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.done.map(function (x) {
-        return '<tr><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
           '<td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Completed">' + esc(dfmt(x.End_At)) + '</td><td data-l="Duration"><b>' + esc(x.Duration || '-') + '</b></td><td data-l="Qty"><b>' + fmtNum(x.Lay_Qty) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? '<button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">Nothing completed yet.</div>';
@@ -2777,7 +2925,7 @@
     h += '<h3 class="sec">Waiting for cutting</h3>';
     h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Laid</th><th>Cut</th><th>To cut</th><th>Layering</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="Cut">' + fmtNum(x.Cut) + '</td><td data-l="To cut"><b>' + fmtNum(x.PendingCut) + '</b></td>' +
           '<td data-l="Layering">' + (x.LayClosed ? '<span class="badge ok">Done</span>' : '<span class="badge warn">Ongoing</span>') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-cut="' + esc(x.Lot_ID) + '">Enter cutting</button></div></td>' : '') + '</tr>';
@@ -2874,7 +3022,7 @@
     $('#vb').innerHTML = '<table><thead><tr><th>Conversion</th><th>From lot(s)</th><th>To lot(s)</th><th>Plan</th><th>Status</th>' + (r.canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Status === 'ACTIVE';
-        return '<tr' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Conversion"><b>' + esc(x.Conversion_ID) + '</b> <span class="badge ' + (x.Type === 'SPLIT' ? 'warn' : '') + '">' + (x.Type === 'SPLIT' ? 'Split' : 'Club') + '</span><div class="cellsub">' + esc(dfmt(x.Date)) + (x.Remarks ? ' · ' + esc(x.Remarks) : '') + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Conversion"><b>' + esc(x.Conversion_ID) + '</b> <span class="badge ' + (x.Type === 'SPLIT' ? 'warn' : '') + '">' + (x.Type === 'SPLIT' ? 'Split' : 'Club') + '</span><div class="cellsub">' + esc(dfmt(x.Date)) + (x.Remarks ? ' · ' + esc(x.Remarks) : '') + '</div></td>' +
           '<td data-l="From">' + x.sources.map(function (l) { return lotLine(l, true); }).join('') + '</td><td data-l="To">' + x.news.map(function (l) { return lotLine(l, false); }).join('') + '</td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Status"><span class="badge ' + (live ? 'ok' : 'off') + '">' + (live ? 'Done' : 'Cancelled') + '</span></td>' +
