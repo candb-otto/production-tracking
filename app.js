@@ -847,7 +847,7 @@
   var MG_ST = { OK: ['Balanced', 'ok'], OVER: ['Over WIP', 'bad'], CONSTRAINT: ['Constraint', 'warn'], NONE: ['No WIP', ''] };
   var MG_SS = { DONE: ['Completed', 'ok'], ON_TRACK: ['On track', 'ok'], AT_RISK: ['At risk', 'warn'], LATE: ['Late', 'bad'], OVERDUE: ['Past cutoff', 'bad'] };
   var MG_LV = { CRITICAL: 'bad', HIGH: 'warn', WATCH: 'info', GOOD: 'ok' };
-  var MG_SK = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', IRONING: 'Ironing', PACKING: 'Packing' };
+  var MG_SK = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', IRONING: 'Ironing', PACKING: 'Sent to Packing' };
   function mgN(n) { return n == null ? '–' : fmtNum(Math.round(n)); }
   function mgP(n) { return n == null ? '–' : n + '%'; }
   /* change vs previous period: arrow + % (or points); good = the direction that is good news */
@@ -918,7 +918,7 @@
     /* 3. seasons */
     var sk = []; r.seasons.forEach(function (s) { s.Stages.forEach(function (x) { if (sk.indexOf(x.k) < 0) sk.push(x.k); }); });
     sk = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].filter(function (k) { return sk.indexOf(k) >= 0; });
-    h += mgSec(3, 'Open Seasons – Completion by Stage', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Plan qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
+    h += mgSec(3, 'Season Production Status', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Plan qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
       r.seasons.map(function (s) {
         var by = {}; s.Stages.forEach(function (x) { by[x.k] = x; }); var st = MG_SS[s.Status] || [s.Status, ''];
         return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b><div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(s.Qty) + '</td>' +
@@ -957,21 +957,26 @@
     h += mgSec(8, 'Key Insights', 'where to focus', r.insights.length ? '<ol class="mg-ins">' + r.insights.map(function (x) {
       return '<li><span class="mg-chip ' + (MG_LV[x.Level] || '') + '">' + esc(x.Level.charAt(0) + x.Level.slice(1).toLowerCase()) + '</span><span class="mg-ia">' + esc(x.Area) + '</span><span class="mg-it">' + esc(x.Text) + '</span></li>';
     }).join('') + '</ol>' : '<div class="card empty">Nothing stands out for this period.</div>');
-    h += '<div class="mg-foot">Generated ' + esc(dfmt(todayStr())) + ' · Production Tracking</div></div>';
+    h += '</div>';
     $('#mgb').innerHTML = h;
   }
   function mgStageCell(x) {
     if (!x) return '<span class="mg-sm">–</span>';
     return '<div class="mg-pb"><i class="' + (x.Pct >= 100 ? 'ok' : '') + '" style="width:' + x.Pct + '%"></i></div><div class="mg-pv">' + x.Pct + '%</div><div class="mg-sm">' + mgN(x.Done) + ' of ' + mgN(x.Base) + '</div>';
   }
-  /* category-wise completion of the same open-season plans */
+  /* category-wise status of the same open-season plans: qty and % per stage, grouped by season when there is more than one */
   function mgCatTable(r, sk) {
-    if (!r.categories || !r.categories.length) return '';
-    return '<div class="mg-sub2">Category-wise completion</div><div class="mg-tw"><table class="mg-t"><thead><tr><th>Category</th><th class="n">Plan qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      r.categories.map(function (c) {
-        var by = {}; c.Stages.forEach(function (x) { by[x.k] = x; });
-        return '<tr><td data-l="Category"><b>' + esc(c.Category) + '</b><div class="mg-sm">' + c.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(c.Qty) + '</td>' +
-          sk.map(function (k) { return '<td data-l="' + esc(MG_SK[k]) + '">' + mgStageCell(by[k]) + '</td>'; }).join('') + '</tr>';
+    var cats = r.categories || []; if (!cats.length) return '';
+    var names = []; cats.forEach(function (c) { if (names.indexOf(c.Season) < 0) names.push(c.Season); });
+    var multi = names.length > 1, last = null;
+    var cell = function (x) { return x ? '<b>' + x.Pct + '%</b> <span class="mg-sm">' + mgN(x.Done) + '</span>' : '<span class="mg-sm">–</span>'; };
+    return '<div class="mg-sub2">Category wise Status' + (multi ? '' : ' - ' + esc(names[0])) + '</div><div class="mg-tw"><table class="mg-t mg-ct"><thead><tr><th>Category</th><th class="n">Plan qty</th>' +
+      sk.map(function (k) { return '<th class="n">' + esc(MG_SK[k]) + '<div class="mg-sm">% · qty</div></th>'; }).join('') + '</tr></thead><tbody>' +
+      cats.map(function (c) {
+        var by = {}, g = ''; c.Stages.forEach(function (x) { by[x.k] = x; });
+        if (multi && c.Season !== last) { last = c.Season; g = '<tr class="mg-grp"><td colspan="' + (sk.length + 2) + '">' + esc(c.Season) + '</td></tr>'; }
+        return g + '<tr><td data-l="Category">' + esc(c.Category) + '</td><td class="n" data-l="Plan qty">' + mgN(c.Qty) + '</td>' +
+          sk.map(function (k) { return '<td class="n" data-l="' + esc(MG_SK[k]) + '">' + cell(by[k]) + '</td>'; }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
   /* column chart: current (blue) and previous period (grey) per unit or per stage */
@@ -2008,7 +2013,7 @@
         };
       });
   }
-  var STAGE = { LAYERING: 'Layering', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', WASHING: 'Washing', IRONING: 'Ironing', STICKERING: 'Stickering', PACKING: 'Packing', PACKED: 'Packed' };
+  var STAGE = { LAYERING: 'Layering', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', WASHING: 'Washing', IRONING: 'Ironing', STICKERING: 'Stickering', PACKING: 'Sent to Packing', PACKED: 'Packed' };
   // ---------------- Phase 7: Sewing ----------------
   function pctTxt(n) { return (n || 0) + '%'; }
   function lotHead(x) {

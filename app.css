@@ -295,4 +295,5 @@ body.mg-print .mg-ins li{font-size:10.5px;padding:7px 10px;grid-template-columns
 .mg-pt{text-align:center;font-size:17px;font-weight:700;letter-spacing:.02em;margin:8px 0 6px;color:var(--ink)}
 .mg-pf{display:grid;grid-template-columns:1fr 1fr 1fr;font-size:11px;background:#F3F5F8;border-radius:6px;padding:6px 10px}.mg-pf span:nth-child(2){text-align:center;font-weight:700}.mg-pf span:nth-child(3){text-align:right;font-weight:700}
 .mg-pcmp{font-size:9px;color:var(--muted);text-align:center;margin:4px 0 10px}
-.mg-foot{font-size:8.5px;color:var(--muted);text-align:right;margin-top:6px}
+.mg-foot{font-size:8.5px;color:var(--muted);text-align:right;margin-top:6px}.mg-ct td{padding:5px 10px;white-space:nowrap}.mg-ct th{padding:6px 10px}.mg-ct th .mg-sm{font-weight:400}.mg-grp td{background:#EEF2F7;font-weight:700;color:var(--navy);padding:5px 10px}
+body.mg-print .mg-ct td{padding:3px 4px}body.mg-print .mg-grp td{padding:3px 4px;font-size:9.5px}
