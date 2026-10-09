@@ -59,7 +59,7 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--focus);out
 .nav.on{background:#E3EBF7;color:var(--navy);font-weight:700;box-shadow:inset 3px 0 0 var(--navy)}
 .ebar{display:inline-block;vertical-align:middle;width:70px;height:8px;background:#E8EDF4;border-radius:99px;overflow:hidden;margin-right:8px}.ebar i{display:block;height:100%;background:var(--ok)}.ebar.warn i{background:var(--warn)}.ebar.bad i{background:var(--bad)}
 .jc.bad{border-color:var(--bad)}
-.main{flex:1;min-width:0;padding:20px 16px 40px;max-width:1100px}
+.main{flex:1;min-width:0;padding:20px 16px 40px;max-width:none}
 .scrim{display:none}
 @media (max-width:520px){.chip{display:none}}
 @media (max-width:820px){
