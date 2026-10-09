@@ -2,9 +2,9 @@
   'use strict';
 
   var S = { token: null, user: null, menu: [], page: 'dashboard', units: [], users: [] };
-  var ROLE = { ADMIN: 'Admin', PROD_ADMIN: 'Production Admin', PM: 'PM', DEPT_USER: 'Department User' };
+  var ROLE = { SUPER_ADMIN: 'Super Admin', ADMIN: 'Admin', PROD_ADMIN: 'Production Admin', PM: 'PM', DEPT_USER: 'Department User' };
   var DEPT = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', SEWING_QC: 'Sewing QC', WASHING: 'Washing',
-    WASHING_QC: 'Washing QC', IRONING: 'Ironing', IRONING_QC: 'Ironing QC', STICKERING: 'Stickering', PACKING: 'Packing' };
+    WASHING_QC: 'Washing QC', IRONING: 'Ironing', IRONING_QC: 'Ironing QC', STICKERING: 'Stickering', PACKING: 'Packing', HR: 'HR' };
 
   /* ---------- tiny helpers ---------- */
   function $(s, r) { return (r || document).querySelector(s); }
@@ -138,7 +138,7 @@
     try { document.body.classList.toggle('side-off', localStorage.getItem('pt_side') === 'off'); } catch (e) { /* ignore */ }
     $('#app').innerHTML =
       '<header class="top"><button class="burger" id="bg" aria-label="Menu">&#9776;</button>' + logoImg(LOGO_CLIENT, 'lg-top', 'Company logo') +
-      '<div class="title">Production Tracking</div><div class="chip">' + esc(S.user.name) + ' &middot; ' + esc(ROLE[S.user.role] || S.user.role) + '</div>' +
+      '<div class="title">Production Tracking</div><div class="chip">' + esc(S.user.name) + ' &middot; ' + esc(S.user.sa ? 'Super Admin' : (ROLE[S.user.role] || S.user.role)) + '</div>' +
       '<button class="bell" id="bell" type="button" aria-label="Notifications"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="nb" hidden>0</span></button>' +
       (S.user.role === 'ADMIN' ? '<button class="btn sm ghost" id="rl" title="Re-read the Google Sheet after editing it by hand">Reload data</button>' : '') +
       '<button class="btn sm ghost" id="lo">Sign out</button></header>' +
@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: viewMasters, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
@@ -661,7 +661,7 @@
     S.df = S.df || { date: '', unitId: '' };
     var u = S.user;
     el.innerHTML = '<div class="page-h"><h2>Welcome, ' + esc(u.name) + '</h2></div>' +
-      '<div class="grid"><div class="card kv">Role<b>' + esc(ROLE[u.role] || u.role) + '</b></div>' +
+      '<div class="grid"><div class="card kv">Role<b>' + esc(u.sa ? 'Super Admin' : (ROLE[u.role] || u.role)) + '</b></div>' +
       '<div class="card kv">Unit<b>' + esc(u.unit ? (u.unitName || u.unit) : 'All units') + '</b></div>' +
       '<div class="card kv">Department<b>' + esc(deptNames(u.depts || u.dept) || 'All') + '</b></div></div><div id="dh"></div>';
     loadDash();
@@ -749,7 +749,7 @@
     }).catch(fail);
   }
   function unitText(id, role) {
-    if (!id) return (role === 'ADMIN' || role === 'PROD_ADMIN') ? 'All' : '-';
+    if (!id) return (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'PROD_ADMIN') ? 'All' : '-';
     return String(id).split(',').map(function (one) {
       one = one.trim();
       var hit = S.units.filter(function (x) { return x.Unit_ID === one; })[0];
@@ -783,7 +783,7 @@
 
   function userForm(u) {
     var isNew = !u; u = u || { Role: 'DEPT_USER', Active: true };
-    var roleOpts = Object.keys(ROLE).map(function (k) { return '<option value="' + k + '"' + (u.Role === k ? ' selected' : '') + '>' + ROLE[k] + '</option>'; }).join('');
+    var roleOpts = Object.keys(ROLE).filter(function (k) { return k !== 'SUPER_ADMIN' || S.user.sa || u.Role === 'SUPER_ADMIN'; }).map(function (k) { return '<option value="' + k + '"' + (u.Role === k ? ' selected' : '') + '>' + ROLE[k] + '</option>'; }).join('');
     var myD = String(u.Department || '').split(',').map(function (x) { return x.trim(); });
     var deptOpts = Object.keys(DEPT).map(function (k) { return '<label class="chk"><input type="checkbox" class="f_d" value="' + k + '"' + (myD.indexOf(k) >= 0 ? ' checked' : '') + '> ' + esc(DEPT[k]) + '</label>'; }).join('');
     var mine = String(u.Unit_ID || '').split(',').map(function (x) { return x.trim(); });
@@ -846,22 +846,25 @@
   /* ---------- User Access (Admin): role, departments, units and page-by-page view / edit ---------- */
   var LVN = { E: 'Edit', V: 'View', '': 'No access' };
   function acCanEdit(role, depts, m) {
+    if (role === 'SUPER_ADMIN') return m.wroles.length > 0;
     if (role === 'PM' || m.wroles.indexOf(role) < 0) return false;
     if (role === 'DEPT_USER') return !m.wd || m.wd.some(function (d) { return depts.indexOf(d) >= 0; });
     return true;
   }
   function acDefault(role, depts, m) {
-    if (m.roles.indexOf(role) < 0) return '';
-    if (role === 'DEPT_USER' && m.depts && !m.depts.some(function (d) { return depts.indexOf(d) >= 0; })) return '';
+    if (role === 'SUPER_ADMIN') return acCanEdit(role, depts, m) ? 'E' : 'V';
+    if (m.saOnly || m.roles.indexOf(role) < 0) return '';
+    if (role === 'DEPT_USER' && !(m.depts ? m.depts.some(function (d) { return depts.indexOf(d) >= 0; }) : (m.always || depts.some(function (d) { return d !== 'HR'; })))) return '';
     return acCanEdit(role, depts, m) ? 'E' : 'V';
   }
   function acMax(role, depts, m) {
-    if (m.adminOnly) return role === 'ADMIN' ? 'E' : '';
+    if (role === 'SUPER_ADMIN') return acDefault(role, depts, m);
+    if (m.saOnly) return '';
     if (m.admin) return acDefault(role, depts, m);
     return acCanEdit(role, depts, m) ? 'E' : 'V';
   }
   function acSummary(u) {
-    if (u.Role === 'ADMIN') return 'Every page';
+    if (u.Role === 'SUPER_ADMIN') return 'Every page';
     if (!u.Pages) return 'Default for role' + (u.Role === 'DEPT_USER' ? ' & department' : '');
     var e = 0, v = 0; Object.keys(u.Pages).forEach(function (k) { if (u.Pages[k] === 'E') e++; else if (u.Pages[k] === 'V') v++; });
     return 'Custom: ' + (e + v) + ' page(s) · ' + e + ' edit, ' + v + ' view';
@@ -891,7 +894,7 @@
     };
   }
   function acUnits(u) {
-    if (u.Role === 'ADMIN' || u.Role === 'PROD_ADMIN') return 'All units';
+    if (u.Role === 'SUPER_ADMIN' || u.Role === 'ADMIN' || u.Role === 'PROD_ADMIN') return 'All units';
     return String(u.Unit_ID || '').split(',').map(function (one) { one = one.trim(); var hit = S.ac.units.filter(function (x) { return x.Unit_ID === one; })[0]; return hit ? hit.Unit_Name : one; }).filter(Boolean).join(', ') || '-';
   }
   function accessForm(u) {
@@ -915,16 +918,16 @@
           var role = st.role, ds = st.depts, h = '';
           $('#ac_dw').hidden = role !== 'DEPT_USER';
           $('#ac_uw').hidden = !(role === 'PM' || role === 'DEPT_USER');
-          $('#ac_ua').hidden = !(role === 'ADMIN' || role === 'PROD_ADMIN');
-          $('#ac_m').hidden = role === 'ADMIN';
-          var custom = st.custom && role !== 'ADMIN';
+          $('#ac_ua').hidden = !(role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'PROD_ADMIN');
+          $('#ac_m').hidden = role === 'SUPER_ADMIN';
+          var custom = st.custom && role !== 'SUPER_ADMIN';
           $('#ac_tools').hidden = !custom;
-          if (role === 'ADMIN') { $('#ac_g').innerHTML = '<div class="hint" style="margin:8px 0">An Admin can open and edit every page.</div>'; return; }
+          if (role === 'SUPER_ADMIN') { $('#ac_g').innerHTML = '<div class="hint" style="margin:8px 0">A Super Admin can open and edit every page, including User Access.</div>'; return; }
           var groups = [], seen = {};
           r.pages.forEach(function (m) { if (!seen[m.group]) { seen[m.group] = 1; groups.push(m.group); } });
           h += '<table class="mgt acg nocsv"><thead><tr><th>Page</th><th>No access</th><th>View</th><th>Edit</th></tr></thead><tbody>';
           groups.forEach(function (g) {
-            var list = r.pages.filter(function (m) { return m.group === g && !(m.adminOnly); });
+            var list = r.pages.filter(function (m) { return m.group === g && !m.saOnly; });
             if (!list.length) return;
             h += '<tr><td colspan="4" style="background:#F7F9FC;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em">' + esc(g) + '</td></tr>';
             list.forEach(function (m) {
@@ -951,7 +954,7 @@
         function fill(kind) {
           st.pages = {};
           r.pages.forEach(function (m) {
-            if (m.always || m.adminOnly) return;
+            if (m.always || m.saOnly) return;
             var max = acMax(st.role, st.depts, m), v = kind === 'def' ? acDefault(st.role, st.depts, m) : kind === 'view' ? (max ? 'V' : '') : kind === 'max' ? max : '';
             if (v) st.pages[m.key] = v;
           });
@@ -973,9 +976,9 @@
         $('#acf').onsubmit = function (ev) {
           ev.preventDefault(); readGrid();
           var pages = null;
-          if (st.custom && st.role !== 'ADMIN') {
+          if (st.custom && st.role !== 'SUPER_ADMIN') {
             pages = {};
-            r.pages.forEach(function (m) { var v = st.pages[m.key]; var max = acMax(st.role, st.depts, m); if (!v || !max || m.always || m.adminOnly) return; pages[m.key] = v === 'E' && max === 'E' ? 'E' : 'V'; });
+            r.pages.forEach(function (m) { var v = st.pages[m.key]; var max = acMax(st.role, st.depts, m); if (!v || !max || m.always || m.saOnly) return; pages[m.key] = v === 'E' && max === 'E' ? 'E' : 'V'; });
           }
           var units = [].slice.call(document.querySelectorAll('.ac_u')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
           api('accessSave', { userId: u.User_ID, role: st.role, depts: st.role === 'DEPT_USER' ? st.depts : [], units: units, pages: pages }).then(function (res) {
@@ -988,9 +991,11 @@
   }
 
   /* ---------- masters (generic, driven by server definitions) ---------- */
-  function viewMasters(el) {
-    el.innerHTML = '<div class="page-h"><h2>Masters</h2></div><div class="tabs" id="mt"></div><div id="mh"></div><div id="mb"></div>';
-    api('masterDefs').then(function (defs) {
+  function viewSettings(el) { viewMasters(el, true); }
+  function viewMasters(el, settings) {
+    S.mset = !!settings;
+    el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div><div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
+    api(settings ? 'settingsDefs' : 'masterDefs').then(function (defs) {
       S.mdefs = defs;
       if (!S.mcur || !defs.some(function (d) { return d.name === S.mcur; })) S.mcur = defs[0].name;
       paintTabs(); loadMaster();
@@ -1009,7 +1014,7 @@
   function loadMaster() {
     var name = S.mcur;
     $('#mb').innerHTML = ''; $('#mh').innerHTML = '';
-    return api('masterList', { name: name }).then(function (r) {
+    return api(S.mset ? 'settingsList' : 'masterList', { name: name }).then(function (r) {
       if (name !== S.mcur) return;
       S.mrows = r.rows; S.mrefs = r.refs; paintMaster();
     }).catch(fail);
@@ -1026,7 +1031,7 @@
     return hit && hit.label ? hit.label + ' (' + v + ')' : v;
   }
   function paintMaster() {
-    var d = mdef(), write = S.user.role === 'ADMIN' && pageEdit('masters');
+    var d = mdef(), write = S.user.role === 'ADMIN' && pageEdit(S.mset ? 'settings' : 'masters');
     var head = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">' + esc(d.help) + '</div>' +
       (write && !d.editOnly ? '<button class="btn" id="madd">+ Add</button>' : '') + '</div>';
     $('#mh').innerHTML = head;
@@ -1082,7 +1087,7 @@
         ev.preventDefault();
         var fields = {};
         d.fields.forEach(function (f) { var el = $('#mf_' + f.n); if (el && !f.readonly) fields[f.n] = el.value; });
-        api('masterSave', { name: d.name, id: row ? row._id : null, fields: fields })
+        api(S.mset ? 'settingsSave' : 'masterSave', { name: d.name, id: row ? row._id : null, fields: fields })
           .then(function () { closeModal(); toast('Saved', 'ok'); return loadMaster(); }).catch(fail);
       };
     });
