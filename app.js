@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
@@ -209,7 +209,7 @@
   }
 
   /* ---------- Revision D: search / date filter / CSV on transaction tables ---------- */
-  var TF_SKIP = { password: 1, reports: 1, alertset: 1 };   /* every other page gets search / filters / CSV on its tables */
+  var TF_SKIP = { password: 1, reports: 1, alertset: 1, mgmt: 1 };   /* every other page gets search / filters / CSV on its tables */
   function dIso(t) {
     var m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(t || ''); if (!m) return '';
     var i = MON.map(function (x) { return x.toLowerCase(); }).indexOf(m[2].toLowerCase()); if (i < 0) return '';
@@ -842,6 +842,211 @@
     });
   }
 
+
+  /* ---------- Management Dashboard (Super Admin) ---------- */
+  var MG_ST = { OK: ['Balanced', 'ok'], OVER: ['Over WIP', 'bad'], CONSTRAINT: ['Constraint', 'warn'], NONE: ['No WIP', ''] };
+  var MG_SS = { DONE: ['Completed', 'ok'], ON_TRACK: ['On track', 'ok'], AT_RISK: ['At risk', 'warn'], LATE: ['Late', 'bad'], OVERDUE: ['Past cutoff', 'bad'] };
+  var MG_LV = { CRITICAL: 'bad', HIGH: 'warn', WATCH: 'info', GOOD: 'ok' };
+  var MG_SK = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', IRONING: 'Ironing', PACKING: 'Packing' };
+  function mgN(n) { return n == null ? '–' : fmtNum(Math.round(n)); }
+  function mgP(n) { return n == null ? '–' : n + '%'; }
+  /* change vs previous period: arrow + % (or points); good = the direction that is good news */
+  function mgD(chg, good, pts, extra) {
+    if (chg == null) return '<span class="mg-d flat">new</span>';
+    if (chg === 0 && extra === 'zero') return '<span class="mg-d flat">–</span>';
+    var c = chg === 0 ? 'flat' : ((chg > 0) === (good !== 'down') ? 'up' : 'down');
+    return '<span class="mg-d ' + c + '">' + (chg > 0 ? '▲ ' : (chg < 0 ? '▼ ' : '')) + (chg > 0 ? '+' : '') + chg + (pts ? ' pts' : '%') + (extra ? ' <i>' + extra + '</i>' : '') + '</span>';
+  }
+  function mgPts(a, b) { return a == null || b == null ? null : Math.round((a - b) * 10) / 10; }
+  function mgRange(r) { return dfmt(r.from) + (r.from !== r.to ? ' to ' + dfmt(r.to) : ''); }
+  function mgPrev(r) { return dfmt(r.prevFrom) + (r.prevFrom !== r.prevTo ? ' to ' + dfmt(r.prevTo) : ''); }
+  function viewMgmt(el) {
+    var t = todayStr();
+    S.mg = S.mg || { from: t, to: t, unitId: '', seasonId: '' };
+    el.innerHTML = '<div class="mg">' +
+      '<div class="mg-top"><div><h2>Management Dashboard</h2><div class="mg-sub" id="mg_sub">Factory production status</div></div>' +
+      '<div class="mg-act"><button class="btn ghost" id="mg_csv">Export CSV</button><button class="btn" id="mg_pdf">Export PDF</button></div></div>' +
+      '<div class="mg-filters card"><div class="mg-f"><label>From<input type="date" id="mg_f"></label><label>To<input type="date" id="mg_t"></label></div>' +
+      '<div class="mg-q"><button type="button" class="chipb" data-q="today">Today</button><button type="button" class="chipb" data-q="yday">Yesterday</button><button type="button" class="chipb" data-q="7">Last 7 days</button><button type="button" class="chipb" data-q="month">This month</button></div>' +
+      '<div class="mg-f"><label>Unit<select id="mg_u"><option value="">All units</option></select></label><label>Season<select id="mg_s"><option value="">All open seasons</option></select></label></div></div>' +
+      '<div id="mgb"><div class="card empty">Loading…</div></div></div>';
+    $('#mg_f').value = S.mg.from; $('#mg_t').value = S.mg.to;
+    var reload = function () { S.mg.from = $('#mg_f').value || todayStr(); S.mg.to = $('#mg_t').value || S.mg.from; if (S.mg.from > S.mg.to) { toast('From date is after To date', 'bad'); return; } S.mg.unitId = $('#mg_u').value; S.mg.seasonId = $('#mg_s').value; loadMgmt(); };
+    $('#mg_f').onchange = reload; $('#mg_t').onchange = reload; $('#mg_u').onchange = reload; $('#mg_s').onchange = reload;
+    $('.mg-q').onclick = function (e) {
+      var q = e.target.getAttribute && e.target.getAttribute('data-q'); if (!q) return;
+      var td = todayStr(), f = td, to = td;
+      if (q === 'yday') { f = to = dAgo(1); } else if (q === '7') { f = dAgo(6); } else if (q === 'month') { f = td.slice(0, 8) + '01'; }
+      $('#mg_f').value = f; $('#mg_t').value = to; reload();
+    };
+    $('#mg_csv').onclick = mgCsv; $('#mg_pdf').onclick = mgPdf;
+    loadMgmt();
+  }
+  var mgSeq = 0;
+  function loadMgmt() {
+    var my = ++mgSeq;
+    return api('mgmtDash', { from: S.mg.from, to: S.mg.to, unitId: S.mg.unitId, seasonId: S.mg.seasonId }).then(function (r) {
+      if (my !== mgSeq || S.page !== 'mgmt') return;
+      S.mgr = r; S.mg.from = r.from; S.mg.to = r.to; $('#mg_f').value = r.from; $('#mg_t').value = r.to;
+      $('#mg_u').innerHTML = '<option value="">All units</option>' + r.filters.units.map(function (u) { return '<option value="' + esc(u.id) + '"' + (S.mg.unitId === u.id ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('');
+      $('#mg_s').innerHTML = '<option value="">All open seasons</option>' + r.filters.seasons.map(function (s) { return '<option value="' + esc(s.id) + '"' + (S.mg.seasonId === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('');
+      var td = todayStr();
+      Array.prototype.forEach.call(document.querySelectorAll('.mg-q .chipb'), function (b) {
+        var q = b.getAttribute('data-q'), on = (q === 'today' && r.from === td && r.to === td) || (q === 'yday' && r.from === dAgo(1) && r.to === dAgo(1)) || (q === '7' && r.from === dAgo(6) && r.to === td) || (q === 'month' && r.from === td.slice(0, 8) + '01' && r.to === td);
+        b.classList.toggle('on', on);
+      });
+      $('#mg_sub').textContent = mgRange(r) + ' · ' + r.len + ' day(s) · compared with ' + mgPrev(r);
+      paintMgmt(r);
+    }).catch(function (e) { if (my === mgSeq) { var b = $('#mgb'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; } });
+  }
+  function mgSec(n, title, sub, body, cls) {
+    return '<section class="mg-sec ' + (cls || '') + '"><div class="mg-h"><span class="mg-n">' + n + '</span><h3>' + esc(title) + '</h3>' + (sub ? '<span class="mg-hs">' + sub + '</span>' : '') + '</div>' + body + '</section>';
+  }
+  function paintMgmt(r) {
+    var h = '<div class="mg-p1">';
+    /* print header (PDF only) */
+    h += '<div class="mg-ph"><div class="mg-ph1"><div class="mg-pl">' + logoImg(LOGO_CLIENT, 'mg-logo', 'Company logo') + '</div><div class="mg-pc">Otto Clothing Pvt Ltd</div><div class="mg-pr">' + logoImg(LOGO_POWER, 'mg-logo', 'Powered by') + '</div></div>' +
+      '<div class="mg-pt">Factory Production Status Report</div>' +
+      '<div class="mg-pf"><span><b>Date range:</b> ' + esc(mgRange(r)) + '</span><span>' + esc(r.unit ? 'Unit - ' + r.unit.name : 'All Units') + '</span><span>' + esc(r.season ? r.season.name : 'All Open Seasons') + '</span></div>' +
+      '<div class="mg-pcmp">Compared with the previous period ' + esc(mgPrev(r)) + '</div></div>';
+    /* 1. stage output */
+    h += mgSec(1, 'Stage Output', esc(mgRange(r)), '<div class="mg-kpis">' + r.kpi.map(function (k) {
+      return '<div class="mg-kpi"><div class="mg-kl">' + esc(k.l) + '</div><div class="mg-kv">' + mgN(k.Qty) + '</div><div class="mg-ks">pcs · avg ' + mgN(k.PerDay) + ' / day</div></div>';
+    }).join('') + '</div>');
+    /* 2. comparison */
+    h += mgSec(2, 'Compared with Previous Period', esc(mgPrev(r)), '<div class="mg-cmp">' + r.kpi.map(function (k) {
+      var mx = Math.max(k.Qty, k.Prev, 1);
+      return '<div class="mg-cc"><div class="mg-kl">' + esc(k.l) + '</div><div class="mg-cv">' + (k.Qty || k.Prev ? mgD(k.Chg, 'up', false) : '<span class="mg-d flat">no output</span>') + '</div>' +
+        '<div class="mg-cb"><span>Now</span><i style="width:' + (k.Qty / mx * 100) + '%"></i><b>' + mgN(k.Qty) + '</b></div>' +
+        '<div class="mg-cb p"><span>Prev</span><i style="width:' + (k.Prev / mx * 100) + '%"></i><b>' + mgN(k.Prev) + '</b></div>' +
+        '<div class="mg-ks">' + (k.Diff >= 0 ? '+' : '') + mgN(k.Diff) + ' pcs</div></div>';
+    }).join('') + '</div>');
+    /* 3. seasons */
+    var sk = []; r.seasons.forEach(function (s) { s.Stages.forEach(function (x) { if (sk.indexOf(x.k) < 0) sk.push(x.k); }); });
+    sk = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].filter(function (k) { return sk.indexOf(k) >= 0; });
+    h += mgSec(3, 'Open Seasons – Completion by Stage', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Plan qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
+      r.seasons.map(function (s) {
+        var by = {}; s.Stages.forEach(function (x) { by[x.k] = x; }); var st = MG_SS[s.Status] || [s.Status, ''];
+        return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b><div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(s.Qty) + '</td>' +
+          sk.map(function (k) { var x = by[k]; return '<td data-l="' + esc(MG_SK[k]) + '">' + (x ? '<div class="mg-pb"><i class="' + (x.Pct >= 100 ? 'ok' : '') + '" style="width:' + x.Pct + '%"></i></div><div class="mg-pv">' + x.Pct + '%</div>' : '<span class="mg-sm">–</span>') + '</td>'; }).join('') +
+          '<td data-l="Sewing cutoff">' + esc(dfmt(s.Cutoff) || '–') + '</td><td class="n" data-l="Days left"><b class="' + (s.DaysLeft != null && s.DaysLeft < 0 ? 'mg-neg' : '') + '">' + (s.DaysLeft == null ? '–' : s.DaysLeft) + '</b>' + (s.DaysLeft != null ? '<div class="mg-sm">' + s.WorkDaysLeft + ' working</div>' : '') + '</td>' +
+          '<td class="n" data-l="Need / pace">' + (s.SewRemaining > 0 ? '<b>' + mgN(s.NeedPerDay) + '</b> / ' + mgN(s.PacePerDay) + '<div class="mg-sm">' + mgN(s.SewRemaining) + ' pcs to sew</div>' : '<span class="mg-sm">sewing done</span>') + '</td>' +
+          '<td data-l="Status"><span class="mg-chip ' + st[1] + '">' + esc(st[0]) + '</span></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="card empty">No open season' + (r.season ? '' : 's') + ' with plans for this filter.</div>');
+    /* 4 + 5. charts */
+    h += '<div class="mg-two">' + mgSec(4, r.chart.title, esc(mgRange(r)) + ' · vs previous period', '<div class="mg-ch">' + mgColumns(r.chart.bars) + '</div>', 'mg-half') +
+      mgSec(5, 'WIP Funnel – Days of Work Held', 'as on today · avg output of last ' + r.wipAvgDays + ' working days', '<div class="mg-ch">' + mgFunnel(r.funnel) + '</div>', 'mg-half') + '</div>';
+    h += '</div><div class="mg-p2">';
+    /* 6. gauges */
+    var g = r.gauge;
+    h += mgSec(6, 'Sewing Manpower & Capacity', esc(mgRange(r)) + ' · vs previous period', '<div class="mg-gs">' +
+      mgGauge('Sewing Dept Absent %', g.Absent.Cur, g.Absent.Prev, 'down', [5, 10], 'Strength ' + mgN(g.Absent.Strength) + ' · Present ' + mgN(g.Absent.Present) + ' · Absent ' + mgN(g.Absent.Absent) + ' (avg / day)') +
+      mgGauge('Machine Utilization %', g.Machine.Cur, g.Machine.Prev, 'up', [75, 90], 'Present ' + mgN(g.Machine.Present) + ' on ' + mgN(g.Machine.Machines) + ' machines (avg / day)') +
+      mgGauge('Capacity Utilization %', g.Capacity.Cur, g.Capacity.Prev, 'up', [70, 85], 'Equivalent output ' + mgN(g.Capacity.EqOut) + ' of capacity ' + mgN(g.Capacity.Capacity) + ' · OT ' + g.Capacity.OtManDays + ' man-days') +
+      '</div><div class="mg-note">Capacity = (machine-days on working days + OT man-hours ÷ ' + r.shiftHours + ') × ' + r.stdPerMachine + ' equivalent pcs per machine. Manpower and capacity are for the whole unit (not per season).</div>');
+    /* 7. unit table */
+    var cols = r.stages;
+    var cell = function (x) { return '<b>' + mgN(x.Qty) + '</b><div>' + (x.Qty || x.Prev ? mgD(x.Chg, 'up') : '<span class="mg-d flat">–</span>') + '</div>'; };
+    var SH = { FABRIC: 'Fabric issued', CUTTING: 'Cutting out', SEWING: 'Sewing out', IRONING: 'Ironing out', STICKERING: 'Sticker. out', PACKING: 'Packing recv.' };
+    var row = function (u, tot) {
+      return '<tr' + (tot ? ' class="mg-tot"' : '') + '><td data-l="Unit"><b>' + esc(u.Unit) + '</b></td>' + cols.map(function (c) { return '<td class="n" data-l="' + esc(c.l) + '">' + cell(u.Stages[c.k]) + '</td>'; }).join('') +
+        '<td class="n" data-l="Total qty">' + cell({ Qty: u.Total, Prev: u.TotalPrev, Chg: u.TotalChg }) + '</td>' +
+        '<td class="n" data-l="Sewing present">' + mgN(u.Cur.Present) + '<div>' + mgD(u.Prev.Present ? Math.round((u.Cur.Present - u.Prev.Present) / u.Prev.Present * 1000) / 10 : null, 'up') + '</div></td>' +
+        '<td class="n" data-l="Absent">' + mgN(u.Cur.Absent) + ' · ' + mgP(u.Cur.AbsentPct) + '<div>' + (u.Cur.AbsentPct == null ? '' : mgD(mgPts(u.Cur.AbsentPct, u.Prev.AbsentPct), 'down', true)) + '</div></td>' +
+        '<td class="n" data-l="Machine util.">' + mgP(u.Cur.MachUtil) + '<div>' + (u.Cur.MachUtil == null ? '' : mgD(mgPts(u.Cur.MachUtil, u.Prev.MachUtil), 'up', true)) + '</div></td>' +
+        '<td class="n" data-l="Capacity util.">' + mgP(u.Cur.CapUtil) + '<div>' + (u.Cur.CapUtil == null ? '' : mgD(mgPts(u.Cur.CapUtil, u.Prev.CapUtil), 'up', true)) + '</div></td></tr>';
+    };
+    h += mgSec(7, 'Unit-wise Performance', esc(mgRange(r)) + ' · small figures = change vs previous period', r.units.length ? '<div class="mg-tw"><table class="mg-t mg-ut"><thead><tr><th>Unit</th>' + cols.map(function (c) { return '<th class="n">' + esc(SH[c.k] || c.l) + '</th>'; }).join('') +
+      '<th class="n">Total qty</th><th class="n">Sewing present</th><th class="n">Absent no · %</th><th class="n">Machine util.</th><th class="n">Capacity util.</th></tr></thead><tbody>' +
+      r.units.map(function (u) { return row(u, false); }).join('') + (r.units.length > 1 ? row(r.total, true) : '') + '</tbody></table></div>' : '<div class="card empty">No unit.</div>');
+    /* 8. insights */
+    h += mgSec(8, 'Key Insights', 'where to focus', r.insights.length ? '<ol class="mg-ins">' + r.insights.map(function (x) {
+      return '<li><span class="mg-chip ' + (MG_LV[x.Level] || '') + '">' + esc(x.Level.charAt(0) + x.Level.slice(1).toLowerCase()) + '</span><span class="mg-ia">' + esc(x.Area) + '</span><span class="mg-it">' + esc(x.Text) + '</span></li>';
+    }).join('') + '</ol>' : '<div class="card empty">Nothing stands out for this period.</div>');
+    h += '<div class="mg-foot">Generated ' + esc(dfmt(todayStr())) + ' · Production Tracking</div></div>';
+    $('#mgb').innerHTML = h;
+  }
+  /* column chart: current (blue) and previous period (grey) per unit or per stage */
+  function mgColumns(bars) {
+    if (!bars.length) return '<div class="card empty">No data.</div>';
+    var W = 560, H = 250, L = 46, R = 8, T = 18, B = 40, pw = W - L - R, ph = H - T - B;
+    var mx = Math.max.apply(null, bars.map(function (b) { return Math.max(b.v, b.p); }).concat([1]));
+    var step = Math.pow(10, Math.floor(Math.log10(mx))), top = Math.ceil(mx / step) * step; if (top / step < 4) { step /= 2; top = Math.ceil(mx / step) * step; }
+    var y = function (v) { return T + ph - v / top * ph; }, gw = pw / bars.length, bw = Math.max(6, Math.min(34, gw * 0.32));
+    var s = '<svg class="mg-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Column chart">';
+    for (var v = 0; v <= top + 0.001; v += step) s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" class="mg-grid"/><text x="' + (L - 6) + '" y="' + (y(v) + 3.5) + '" class="mg-ax" text-anchor="end">' + fmtK(v) + '</text>';
+    bars.forEach(function (b, i) {
+      var cx = L + gw * i + gw / 2, x1 = cx - bw - 1, x2 = cx + 1;
+      s += '<g><title>' + esc(b.l) + ': ' + fmtNum(b.v) + ' pcs (previous ' + fmtNum(b.p) + ')</title>' +
+        '<path class="mg-bc" d="' + mgBar(x1, y(b.v), bw, T + ph - y(b.v)) + '"/><path class="mg-bp" d="' + mgBar(x2, y(b.p), bw, T + ph - y(b.p)) + '"/>' +
+        (b.v > 0 ? '<text x="' + (x1 + bw / 2) + '" y="' + (y(b.v) - 4) + '" class="mg-vl" text-anchor="middle">' + fmtK(b.v) + '</text>' : '') +
+        '<rect x="' + (cx - gw / 2) + '" y="' + T + '" width="' + gw + '" height="' + ph + '" fill="transparent"/></g>' +
+        '<text x="' + cx + '" y="' + (H - B + 16) + '" class="mg-xl" text-anchor="middle">' + esc(b.l.length > 12 ? b.l.slice(0, 11) + '…' : b.l) + '</text>';
+    });
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + (T + ph) + '" y2="' + (T + ph) + '" class="mg-base"/></svg>';
+    return s + '<div class="mg-lg"><span><i class="c"></i>Selected period</span><span><i class="p"></i>Previous period</span></div>';
+  }
+  function mgBar(x, yy, w, h) { if (h <= 0) return ''; var r = Math.min(4, w / 2, h); return 'M' + x + ',' + (yy + h) + 'V' + (yy + r) + 'Q' + x + ',' + yy + ' ' + (x + r) + ',' + yy + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + yy + ' ' + (x + w) + ',' + (yy + r) + 'V' + (yy + h) + 'Z'; }
+  /* WIP funnel: one centred band per stage, width = WIP; days of work held and the status at the right */
+  function mgFunnel(rows) {
+    if (!rows.length) return '<div class="card empty">No WIP.</div>';
+    var W = 560, rh = 38, gap = 6, H = rows.length * (rh + gap), L = 138, Rw = 140, bw = W - L - Rw, cx = L + bw / 2;
+    var mx = Math.max.apply(null, rows.map(function (r) { return r.Wip; }).concat([1]));
+    var s = '<svg class="mg-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="WIP funnel">';
+    rows.forEach(function (r, i) {
+      var w = r.Wip > 0 ? Math.max(bw * 0.16, r.Wip / mx * bw) : 4, y0 = i * (rh + gap), st = MG_ST[r.Status] || ['', ''];
+      var nw = i < rows.length - 1 ? (rows[i + 1].Wip > 0 ? Math.max(bw * 0.16, rows[i + 1].Wip / mx * bw) : 4) : w;
+      var tw = w, bwid = Math.min(w, Math.max(nw, w * 0.82));
+      s += '<g><title>' + esc(r.l) + ': ' + fmtNum(r.Wip) + ' pcs WIP in ' + r.Lots + ' lot(s) · ' + (r.Days == null ? 'no recent output' : r.Days + ' days of output') + ' · ' + st[0] + '</title>' +
+        '<text x="0" y="' + (y0 + rh / 2 + 4) + '" class="mg-fl">' + esc(r.l) + '</text>' +
+        '<path class="mg-fb ' + st[1] + '" d="M' + (cx - tw / 2) + ',' + y0 + 'H' + (cx + tw / 2) + 'L' + (cx + bwid / 2) + ',' + (y0 + rh) + 'H' + (cx - bwid / 2) + 'Z"/>' +
+        '<text x="' + cx + '" y="' + (y0 + rh / 2 + 4) + '" class="mg-fv' + (w < 90 ? ' out' : '') + '" text-anchor="middle">' + fmtNum(r.Wip) + '</text>' +
+        '<text x="' + (W - Rw + 10) + '" y="' + (y0 + rh / 2 - 2) + '" class="mg-fd">' + (r.Days == null ? '–' : r.Days + ' days') + '</text>' +
+        '<text x="' + (W - Rw + 10) + '" y="' + (y0 + rh / 2 + 12) + '" class="mg-fs ' + st[1] + '">' + esc(st[0]) + (r.Max || r.Min ? ' (' + (r.Min || 0) + '–' + (r.Max || '∞') + ' d)' : '') + '</text></g>';
+    });
+    return s + '</svg><div class="mg-lg"><span><i class="ok"></i>Balanced</span><span><i class="warn"></i>Constraint (too little WIP)</span><span><i class="bad"></i>Over WIP (pile-up)</span></div>';
+  }
+  /* semicircle gauge 0-100% (over 100 shows full); band colour from the thresholds */
+  function mgGauge(title, cur, prev, good, th, foot) {
+    var v = cur == null ? 0 : Math.max(0, Math.min(100, cur)), cls = cur == null ? '' : (good === 'down' ? (cur <= th[0] ? 'ok' : (cur <= th[1] ? 'warn' : 'bad')) : (cur >= th[1] ? 'ok' : (cur >= th[0] ? 'warn' : 'bad')));
+    var R = 78, cx = 100, cy = 92, pt = function (p) { var a = Math.PI * (1 - p / 100); return (cx + R * Math.cos(a)).toFixed(2) + ',' + (cy - R * Math.sin(a)).toFixed(2); };
+    var arc = function (a, b) { return 'M' + pt(a) + ' A' + R + ',' + R + ' 0 0 1 ' + pt(b); };
+    var s = '<svg class="mg-gv" viewBox="0 0 200 118" role="img" aria-label="' + esc(title) + '"><path d="' + arc(0, 100) + '" class="mg-gt"/>' + (v > 0 ? '<path d="' + arc(0, Math.max(v, 0.5)) + '" class="mg-ga ' + cls + '"/>' : '') +
+      '<text x="100" y="86" text-anchor="middle" class="mg-gn">' + (cur == null ? '–' : cur + '%') + '</text><text x="22" y="115" class="mg-ax" text-anchor="middle">0%</text><text x="178" y="115" class="mg-ax" text-anchor="middle">100%</text></svg>';
+    return '<div class="mg-g"><div class="mg-gh">' + esc(title) + '</div>' + s + '<div class="mg-gc">Previous ' + mgP(prev) + ' · ' + (cur == null ? '' : mgD(mgPts(cur, prev), good, true)) + '</div><div class="mg-gf">' + esc(foot) + '</div></div>';
+  }
+  function mgCsv() {
+    var r = S.mgr; if (!r) return;
+    var rows = [['Factory Production Status Report'], ['Date range', mgRange(r)], ['Unit', r.unit ? 'Unit - ' + r.unit.name : 'All Units'], ['Season', r.season ? r.season.name : 'All Open Seasons'], ['Compared with', mgPrev(r)], [],
+      ['1-2. Stage output', 'Qty', 'Previous', 'Change qty', 'Change %', 'Avg per day']];
+    r.kpi.forEach(function (k) { rows.push([k.l, k.Qty, k.Prev, k.Diff, k.Chg == null ? '' : k.Chg, k.PerDay]); });
+    rows.push([], ['3. Open seasons', 'Plans', 'Plan qty'].concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return MG_SK[k] + ' %'; })).concat(['Sewing cutoff', 'Days left', 'Working days left', 'Need per day', 'Pace per day', 'Status']));
+    r.seasons.forEach(function (s) { var by = {}; s.Stages.forEach(function (x) { by[x.k] = x.Pct; }); rows.push([s.Season, s.Plans, s.Qty].concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return by[k] == null ? '' : by[k]; })).concat([dfmt(s.Cutoff), s.DaysLeft, s.WorkDaysLeft, s.NeedPerDay, s.PacePerDay, (MG_SS[s.Status] || [s.Status])[0]])); });
+    rows.push([], ['4. ' + r.chart.title, 'Qty', 'Previous']); r.chart.bars.forEach(function (b) { rows.push([b.l, b.v, b.p]); });
+    rows.push([], ['5. WIP funnel (today)', 'WIP pcs', 'Lots', 'Avg output / day', 'Days of WIP', 'Min days', 'Max days', 'Status']);
+    r.funnel.forEach(function (f) { rows.push([f.l, f.Wip, f.Lots, f.AvgOut, f.Days == null ? '' : f.Days, f.Min || '', f.Max || '', (MG_ST[f.Status] || [f.Status])[0]]); });
+    var g = r.gauge; rows.push([], ['6. Sewing manpower & capacity', 'Current %', 'Previous %'], ['Absent %', g.Absent.Cur, g.Absent.Prev], ['Machine utilization %', g.Machine.Cur, g.Machine.Prev], ['Capacity utilization %', g.Capacity.Cur, g.Capacity.Prev]);
+    rows.push([], ['7. Unit-wise performance'].concat(r.stages.map(function (c) { return c.l; })).concat(['Total qty', 'Sewing present (avg/day)', 'Absent no (avg/day)', 'Absent %', 'Machine util %', 'Capacity util %', 'Prev total qty', 'Prev absent %', 'Prev machine util %', 'Prev capacity util %']));
+    r.units.concat(r.units.length > 1 ? [r.total] : []).forEach(function (u) {
+      rows.push([u.Unit].concat(r.stages.map(function (c) { return u.Stages[c.k].Qty; })).concat([u.Total, u.Cur.Present, u.Cur.Absent, u.Cur.AbsentPct, u.Cur.MachUtil, u.Cur.CapUtil, u.TotalPrev, u.Prev.AbsentPct, u.Prev.MachUtil, u.Prev.CapUtil]));
+    });
+    rows.push([], ['8. Key insights', 'Area', 'Level']); r.insights.forEach(function (x) { rows.push([x.Text, x.Area, x.Level]); });
+    csvDownload('Factory_Production_Status_' + r.from + (r.from !== r.to ? '_to_' + r.to : '') + '.csv', rows);
+  }
+  /* PDF: the browser's print → "Save as PDF", laid out on two A4 portrait pages (each page is scaled down if it would overflow) */
+  function mgPdf() {
+    var r = S.mgr; if (!r) return;
+    var b = document.body, p1 = $('.mg-p1'), p2 = $('.mg-p2'), title = document.title;
+    b.classList.add('mg-print');
+    [p1, p2].forEach(function (p) {
+      p.style.zoom = ''; var hgt = p.scrollHeight, max = 1000;   /* A4 printable height at the print width */
+      if (hgt > max) p.style.zoom = String(Math.floor(max / hgt * 100) / 100);
+    });
+    document.title = 'Factory Production Status ' + mgRange(r) + (r.unit ? ' - ' + r.unit.name : '');
+    var done = function () { b.classList.remove('mg-print'); p1.style.zoom = ''; p2.style.zoom = ''; document.title = title; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(function () { window.print(); setTimeout(function () { if (b.classList.contains('mg-print') && !window.matchMedia('print').matches) done(); }, 1500); }, 60);
+  }
 
   /* ---------- User Access (Admin): role, departments, units and page-by-page view / edit ---------- */
   var LVN = { E: 'Edit', V: 'View', '': 'No access' };
