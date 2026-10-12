@@ -918,7 +918,7 @@
     /* 3. seasons */
     var sk = []; r.seasons.forEach(function (s) { s.Stages.forEach(function (x) { if (sk.indexOf(x.k) < 0) sk.push(x.k); }); });
     sk = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].filter(function (k) { return sk.indexOf(k) >= 0; });
-    h += mgSec(3, 'Season Production Status', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Plan qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
+    h += mgSec(3, 'Season Production Status', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Planned qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
       r.seasons.map(function (s) {
         var by = {}; s.Stages.forEach(function (x) { by[x.k] = x; }); var st = MG_SS[s.Status] || [s.Status, ''];
         return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b><div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(s.Qty) + '</td>' +
@@ -926,7 +926,7 @@
           '<td data-l="Sewing cutoff">' + esc(dfmt(s.Cutoff) || '–') + '</td><td class="n" data-l="Days left"><b class="' + (s.DaysLeft != null && s.DaysLeft < 0 ? 'mg-neg' : '') + '">' + (s.DaysLeft == null ? '–' : s.DaysLeft) + '</b>' + (s.DaysLeft != null ? '<div class="mg-sm">' + s.WorkDaysLeft + ' working</div>' : '') + '</td>' +
           '<td class="n" data-l="Need / pace">' + (s.SewRemaining > 0 ? '<b>' + mgN(s.NeedPerDay) + '</b> / ' + mgN(s.PacePerDay) + '<div class="mg-sm">' + mgN(s.SewRemaining) + ' pcs to sew</div>' : '<span class="mg-sm">sewing done</span>') + '</td>' +
           '<td data-l="Status"><span class="mg-chip ' + st[1] + '">' + esc(st[0]) + '</span></td></tr>';
-      }).join('') + '</tbody></table></div>' + mgCatTable(r, sk) : '<div class="card empty">No open season' + (r.season ? '' : 's') + ' with plans for this filter.</div>');
+      }).join('') + '</tbody></table></div><div class="mg-note">Each stage: qty (% of planned qty); the line below = % of fabric issued.</div>' + mgCatTable(r, sk) : '<div class="card empty">No open season' + (r.season ? '' : 's') + ' with plans for this filter.</div>');
     /* 4 + 5. charts */
     h += '<div class="mg-two">' + mgSec(4, r.chart.title, esc(mgRange(r)) + ' · vs previous period', '<div class="mg-ch">' + mgColumns(r.chart.bars) + '</div>', 'mg-half') +
       mgSec(5, 'WIP by Stage – Days of Work Held', 'as on today · days = WIP ÷ avg output of last ' + r.wipAvgDays + ' working days', '<div class="mg-ch">' + mgWipBars(r.funnel) + '</div>', 'mg-half') + '</div>';
@@ -962,22 +962,24 @@
   }
   function mgStageCell(x) {
     if (!x) return '<span class="mg-sm">–</span>';
-    return '<div class="mg-pb"><i class="' + (x.Pct >= 100 ? 'ok' : '') + '" style="width:' + x.Pct + '%"></i></div><div class="mg-pv">' + x.Pct + '%</div><div class="mg-sm">' + mgN(x.Done) + ' of ' + mgN(x.Base) + '</div>';
+    var p = x.Pct == null ? 0 : Math.min(100, x.Pct);
+    return '<div class="mg-pb"><i class="' + (x.Pct >= 100 ? 'ok' : '') + '" style="width:' + p + '%"></i></div><div class="mg-pv">' + mgN(x.Done) + ' <span class="mg-pp">(' + mgP(x.Pct) + ')</span></div>' +
+      (x.k === 'FABRIC' ? '<div class="mg-sm">of planned</div>' : '<div class="mg-sm">' + mgP(x.PctIssued) + ' of issued</div>');
   }
   /* category-wise status of the same open-season plans: qty and % per stage, grouped by season when there is more than one */
   function mgCatTable(r, sk) {
     var cats = r.categories || []; if (!cats.length) return '';
     var names = []; cats.forEach(function (c) { if (names.indexOf(c.Season) < 0) names.push(c.Season); });
     var multi = names.length > 1, last = null;
-    var cell = function (x) { return x ? '<b>' + x.Pct + '%</b> <span class="mg-sm">' + mgN(x.Done) + '</span>' : '<span class="mg-sm">–</span>'; };
-    return '<div class="mg-sub2">Category wise Status' + (multi ? '' : ' - ' + esc(names[0])) + '</div><div class="mg-tw"><table class="mg-t mg-ct"><thead><tr><th>Category</th><th class="n">Plan qty</th>' +
-      sk.map(function (k) { return '<th class="n">' + esc(MG_SK[k]) + '<div class="mg-sm">% · qty</div></th>'; }).join('') + '</tr></thead><tbody>' +
+    var cell = function (x) { return x ? '<b>' + mgN(x.Done) + '</b> <span class="mg-sm">(' + mgP(x.Pct) + (x.k === 'FABRIC' ? '' : ' · ' + mgP(x.PctIssued)) + ')</span>' : '<span class="mg-sm">–</span>'; };
+    return '<div class="mg-sub2">Category wise Status' + (multi ? '' : ' - ' + esc(names[0])) + '</div><div class="mg-tw"><table class="mg-t mg-ct"><thead><tr><th>Category</th><th class="n">Planned qty</th>' +
+      sk.map(function (k) { return '<th class="n">' + esc(MG_SK[k]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       cats.map(function (c) {
         var by = {}, g = ''; c.Stages.forEach(function (x) { by[x.k] = x; });
         if (multi && c.Season !== last) { last = c.Season; g = '<tr class="mg-grp"><td colspan="' + (sk.length + 2) + '">' + esc(c.Season) + '</td></tr>'; }
         return g + '<tr><td data-l="Category">' + esc(c.Category) + '</td><td class="n" data-l="Plan qty">' + mgN(c.Qty) + '</td>' +
           sk.map(function (k) { return '<td class="n" data-l="' + esc(MG_SK[k]) + '">' + cell(by[k]) + '</td>'; }).join('') + '</tr>';
-      }).join('') + '</tbody></table></div>';
+      }).join('') + '</tbody></table></div><div class="mg-note">Qty (% of planned qty · % of fabric issued).</div>';
   }
   /* column chart: current (blue) and previous period (grey) per unit or per stage */
   function mgColumns(bars) {
@@ -1035,11 +1037,13 @@
     var rows = [['Factory Production Status Report'], ['Date range', mgRange(r)], ['Unit', r.unit ? 'Unit - ' + r.unit.name : 'All Units'], ['Season', r.season ? r.season.name : 'All Open Seasons'], ['Compared with', mgPrev(r)], [],
       ['Stage output', 'Qty', 'Previous', 'Change qty', 'Change %', 'Avg per day']];
     r.kpi.forEach(function (k) { rows.push([k.l, k.Qty, k.Prev, k.Diff, k.Chg == null ? '' : k.Chg, k.PerDay]); });
-    rows.push([], ['Open seasons', 'Plans', 'Plan qty'].concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return MG_SK[k] + ' %'; })).concat(['Sewing cutoff', 'Days left', 'Working days left', 'Need per day', 'Pace per day', 'Status']));
-    r.seasons.forEach(function (s) { var by = {}; s.Stages.forEach(function (x) { by[x.k] = x.Pct; }); rows.push([s.Season, s.Plans, s.Qty].concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return by[k] == null ? '' : by[k]; })).concat([dfmt(s.Cutoff), s.DaysLeft, s.WorkDaysLeft, s.NeedPerDay, s.PacePerDay, (MG_SS[s.Status] || [s.Status])[0]])); });
-    rows.push([], ['Category-wise completion', 'Plans', 'Plan qty'].concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return MG_SK[k] + ' qty'; })).concat(['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].map(function (k) { return MG_SK[k] + ' %'; })));
-    (r.categories || []).forEach(function (c) { var by = {}; c.Stages.forEach(function (x) { by[x.k] = x; }); var K = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'];
-      rows.push([c.Category, c.Plans, c.Qty].concat(K.map(function (k) { return by[k] ? by[k].Done : ''; })).concat(K.map(function (k) { return by[k] ? by[k].Pct : ''; }))); });
+    var SK6 = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'];
+    var stHead = []; SK6.forEach(function (k) { stHead.push(MG_SK[k] + ' qty', MG_SK[k] + ' % of planned'); if (k !== 'FABRIC') stHead.push(MG_SK[k] + ' % of issued'); });
+    var stVals = function (list) { var by = {}, o = []; list.forEach(function (x) { by[x.k] = x; }); SK6.forEach(function (k) { var x = by[k]; o.push(x ? x.Done : '', x && x.Pct != null ? x.Pct : ''); if (k !== 'FABRIC') o.push(x && x.PctIssued != null ? x.PctIssued : ''); }); return o; };
+    rows.push([], ['Season production status', 'Plans', 'Planned qty'].concat(stHead).concat(['Sewing cutoff', 'Days left', 'Working days left', 'Need per day', 'Pace per day', 'Status']));
+    r.seasons.forEach(function (s) { rows.push([s.Season, s.Plans, s.Qty].concat(stVals(s.Stages)).concat([dfmt(s.Cutoff), s.DaysLeft, s.WorkDaysLeft, s.NeedPerDay, s.PacePerDay, (MG_SS[s.Status] || [s.Status])[0]])); });
+    rows.push([], ['Category wise status', 'Season', 'Plans', 'Planned qty'].concat(stHead));
+    (r.categories || []).forEach(function (c) { rows.push([c.Category, c.Season, c.Plans, c.Qty].concat(stVals(c.Stages))); });
     rows.push([], [r.chart.title, 'Qty', 'Previous']); r.chart.bars.forEach(function (b) { rows.push([b.l, b.v, b.p]); });
     rows.push([], ['WIP by stage (today)', 'WIP pcs', 'Lots', 'Avg output / day', 'Days of WIP', 'Min days', 'Max days', 'Status']);
     r.funnel.forEach(function (f) { rows.push([f.l, f.Wip, f.Lots, f.AvgOut, f.Days == null ? '' : f.Days, f.Min || '', f.Max || '', (MG_ST[f.Status] || [f.Status])[0]]); });
