@@ -277,7 +277,8 @@ body.mg-print .mg-ph{display:block}body.mg-print .mg-top,body.mg-print .mg-filte
   body.mg-print header.top,body.mg-print .side,body.mg-print .scrim,body.mg-print .npanel,body.mg-print #modal-root,body.mg-print .toast,body.mg-print .loader,body.mg-print #loader{display:none!important}
   body.mg-print .shell{display:block}body.mg-print .main{padding:0!important;margin:0}
   body.mg-print .mg-p2{break-before:page;page-break-before:always}
-  body.mg-print .mg-sec,body.mg-print .mg-two,body.mg-print tr{break-inside:avoid}
+  body.mg-print.mg-flow .mg-p2{break-before:auto;page-break-before:auto;margin-top:12px}
+  body.mg-print .mg-h,body.mg-print .mg-two,body.mg-print .mg-gs,body.mg-print .mg-kpis,body.mg-print tr{break-inside:avoid}body.mg-print .mg-h{break-after:avoid}body.mg-print .mg-ins li,body.mg-print .mg-g{break-inside:avoid}
   body.mg-print .mg-foot{display:block}
 }
 body.mg-print .mg-kpi,body.mg-print .mg-cc,body.mg-print .mg-ch,body.mg-print .mg-g,body.mg-print .mg-tw,body.mg-print .mg-ins{box-shadow:none;border:1px solid #DCE2EA}
@@ -298,3 +299,29 @@ body.mg-print .mg-ins li{font-size:10.5px;padding:7px 10px;grid-template-columns
 .mg-foot{font-size:8.5px;color:var(--muted);text-align:right;margin-top:6px}.mg-ct td{padding:5px 10px;white-space:nowrap}.mg-ct th{padding:6px 10px}.mg-ct th .mg-sm{font-weight:400}.mg-grp td{background:#EEF2F7;font-weight:700;color:var(--navy);padding:5px 10px}
 body.mg-print .mg-ct td{padding:3px 4px}body.mg-print .mg-grp td{padding:3px 4px;font-size:9.5px}.mg-pp{font-weight:500;color:var(--muted);font-size:11px}.mg-t th .mg-sm{font-weight:400;white-space:normal}
 body.mg-print .mg-pp{font-size:8.5px}
+/* Management Dashboard – Consulting & Beyond colour scheme (amber, sage green, near-black) */
+.mg{--cb-amber:#F8A51A;--cb-amber2:#FBAE40;--cb-amber-l:#FFF3DC;--cb-sage:#9CC3A9;--cb-sage-d:#4E8A63;--cb-sage-l:#E6F0E9;--cb-ink:#0B2014;--cb-grey:#F2F2F2;--cb-red:#C8463B;
+  --c1:var(--cb-amber);--c0:var(--cb-sage);color:var(--cb-ink)}
+.mg-top h2{color:var(--cb-ink)}
+.mg .btn{background:var(--cb-ink);color:#fff;border:0}.mg .btn:hover{background:#1d3a28}.mg .btn.ghost{background:#fff;color:var(--cb-ink);border:1px solid #D7DDD9}
+.mg .chipb.on{background:var(--cb-amber);border-color:var(--cb-amber);color:var(--cb-ink);font-weight:700}
+.mg-filters{border-top:4px solid var(--cb-amber)}
+.mg-h{border-bottom:3px solid var(--cb-amber)}.mg-h h3{color:var(--cb-ink)}
+.mg-kpi{border-top:4px solid var(--cb-amber)}.mg-kv{color:var(--cb-ink)}.mg-kl{color:#5b6b61}
+.mg-d.up{color:var(--cb-sage-d)}.mg-d.down{color:var(--cb-red)}
+.mg-tw{border:1px solid #E6E9E7}
+.mg-t thead th{background:var(--cb-amber);color:var(--cb-ink);font-weight:700;border-bottom:0}
+.mg-t tbody tr:nth-child(even) td{background:#FAFAFA}
+.mg-pb{background:var(--cb-grey)}.mg-pb i{background:var(--cb-amber)}.mg-pb i.ok{background:var(--cb-sage-d)}
+.mg-chip{background:var(--cb-grey);color:var(--cb-ink)}.mg-chip.ok{background:var(--cb-sage-l);color:var(--cb-sage-d)}.mg-chip.warn{background:var(--cb-amber-l);color:#9A5B00}.mg-chip.bad{background:#FBE4E1;color:var(--cb-red)}.mg-chip.info{background:#EDF1EE;color:#3B5446}
+.mg-grp td{background:var(--cb-ink)!important;color:#fff!important}
+.mg-typ td{background:var(--cb-sage-l)!important;font-weight:700}.mg-typ td .mg-sm{font-weight:400}.mg-ci{padding-left:22px!important}
+.mg-tot td{background:var(--cb-amber-l)!important}
+.mg-sub2{color:var(--cb-ink)}
+.mg-bc{fill:var(--cb-amber)}.mg-bp{fill:var(--cb-sage)}
+.mg-lg i{background:var(--cb-amber)}.mg-lg i.p{background:var(--cb-sage)}.mg-lg i.ok{background:var(--cb-sage)}.mg-lg i.warn{background:var(--cb-amber)}.mg-lg i.bad{background:var(--cb-red)}
+.mg-fb,.mg-fb.ok{fill:var(--cb-sage)}.mg-fb.warn{fill:var(--cb-amber)}.mg-fb.bad{fill:var(--cb-red)}
+.mg-fs.ok{fill:var(--cb-sage-d)}.mg-fs.warn{fill:#9A5B00}.mg-fs.bad{fill:var(--cb-red)}
+.mg-ga{stroke:var(--cb-amber)}.mg-ga.ok{stroke:var(--cb-sage-d)}.mg-ga.warn{stroke:var(--cb-amber)}.mg-ga.bad{stroke:var(--cb-red)}.mg-gt{stroke:var(--cb-grey)}
+.mg-gh{color:var(--cb-ink)}.mg-g,.mg-kpi,.mg-ch,.mg-ins{border-radius:10px}
+.mg-ph1{border-bottom:4px solid var(--cb-amber)}.mg-pc{color:var(--cb-ink)}.mg-pf{background:var(--cb-sage-l)}

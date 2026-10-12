@@ -970,16 +970,36 @@
   function mgCatTable(r, sk) {
     var cats = r.categories || []; if (!cats.length) return '';
     var names = []; cats.forEach(function (c) { if (names.indexOf(c.Season) < 0) names.push(c.Season); });
-    var multi = names.length > 1, last = null;
+    var multi = names.length > 1, span = sk.length + 2;
     var cell = function (x) { return x ? '<b>' + mgN(x.Done) + '</b> <span class="mg-sm">(' + mgP(x.Pct) + (x.k === 'FABRIC' ? '' : ' · ' + mgP(x.PctIssued)) + ')</span>' : '<span class="mg-sm">–</span>'; };
+    var pc = function (a, b) { return b > 0 ? Math.round(a / b * 1000) / 10 : null; };
+    /* product-type subtotal (Shirt / Trouser ...) worked out from its categories */
+    var sum = function (list) {
+      var o = { Qty: 0, by: {} };
+      list.forEach(function (c) { o.Qty += c.Qty; c.Stages.forEach(function (x) { var t = o.by[x.k] || (o.by[x.k] = { k: x.k, Done: 0, Base: 0, Issued: 0 }); t.Done += x.Done; t.Base += x.Base; t.Issued += x.Issued || 0; }); });
+      Object.keys(o.by).forEach(function (k) { var t = o.by[k]; t.Pct = pc(t.Done, t.Base); t.PctIssued = k === 'FABRIC' ? null : pc(t.Done, t.Issued); });
+      return o;
+    };
+    var row = function (c) {
+      var by = {}; c.Stages.forEach(function (x) { by[x.k] = x; });
+      return '<tr><td data-l="Category" class="mg-ci">' + esc(c.Category) + '</td><td class="n" data-l="Planned qty">' + mgN(c.Qty) + '</td>' +
+        sk.map(function (k) { return '<td class="n" data-l="' + esc(MG_SK[k]) + '">' + cell(by[k]) + '</td>'; }).join('') + '</tr>';
+    };
+    var h = '';
+    names.forEach(function (sn) {
+      var inS = cats.filter(function (c) { return c.Season === sn; }), types = [];
+      inS.forEach(function (c) { if (types.indexOf(c.Type) < 0) types.push(c.Type); });
+      if (multi) h += '<tr class="mg-grp"><td colspan="' + span + '">' + esc(sn) + '</td></tr>';
+      types.forEach(function (t) {
+        var list = inS.filter(function (c) { return c.Type === t; }), tt = sum(list);
+        h += '<tr class="mg-typ"><td data-l="Type">' + esc(t) + ' <span class="mg-sm">· ' + list.length + ' categor' + (list.length === 1 ? 'y' : 'ies') + '</span></td><td class="n" data-l="Planned qty">' + mgN(tt.Qty) + '</td>' +
+          sk.map(function (k) { return '<td class="n" data-l="' + esc(MG_SK[k]) + '">' + cell(tt.by[k]) + '</td>'; }).join('') + '</tr>';
+        h += list.map(row).join('');
+      });
+    });
     return '<div class="mg-sub2">Category wise Status' + (multi ? '' : ' - ' + esc(names[0])) + '</div><div class="mg-tw"><table class="mg-t mg-ct"><thead><tr><th>Category</th><th class="n">Planned qty</th>' +
-      sk.map(function (k) { return '<th class="n">' + esc(MG_SK[k]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      cats.map(function (c) {
-        var by = {}, g = ''; c.Stages.forEach(function (x) { by[x.k] = x; });
-        if (multi && c.Season !== last) { last = c.Season; g = '<tr class="mg-grp"><td colspan="' + (sk.length + 2) + '">' + esc(c.Season) + '</td></tr>'; }
-        return g + '<tr><td data-l="Category">' + esc(c.Category) + '</td><td class="n" data-l="Plan qty">' + mgN(c.Qty) + '</td>' +
-          sk.map(function (k) { return '<td class="n" data-l="' + esc(MG_SK[k]) + '">' + cell(by[k]) + '</td>'; }).join('') + '</tr>';
-      }).join('') + '</tbody></table></div><div class="mg-note">Qty (% of planned qty · % of fabric issued).</div>';
+      sk.map(function (k) { return '<th class="n">' + esc(MG_SK[k]) + '</th>'; }).join('') + '</tr></thead><tbody>' + h +
+      '</tbody></table></div><div class="mg-note">Grouped by product type (Shirt, Trouser …) with its total. Qty (% of planned qty · % of fabric issued).</div>';
   }
   /* column chart: current (blue) and previous period (grey) per unit or per stage */
   function mgColumns(bars) {
@@ -1042,8 +1062,8 @@
     var stVals = function (list) { var by = {}, o = []; list.forEach(function (x) { by[x.k] = x; }); SK6.forEach(function (k) { var x = by[k]; o.push(x ? x.Done : '', x && x.Pct != null ? x.Pct : ''); if (k !== 'FABRIC') o.push(x && x.PctIssued != null ? x.PctIssued : ''); }); return o; };
     rows.push([], ['Season production status', 'Plans', 'Planned qty'].concat(stHead).concat(['Sewing cutoff', 'Days left', 'Working days left', 'Need per day', 'Pace per day', 'Status']));
     r.seasons.forEach(function (s) { rows.push([s.Season, s.Plans, s.Qty].concat(stVals(s.Stages)).concat([dfmt(s.Cutoff), s.DaysLeft, s.WorkDaysLeft, s.NeedPerDay, s.PacePerDay, (MG_SS[s.Status] || [s.Status])[0]])); });
-    rows.push([], ['Category wise status', 'Season', 'Plans', 'Planned qty'].concat(stHead));
-    (r.categories || []).forEach(function (c) { rows.push([c.Category, c.Season, c.Plans, c.Qty].concat(stVals(c.Stages))); });
+    rows.push([], ['Category wise status', 'Season', 'Type', 'Plans', 'Planned qty'].concat(stHead));
+    (r.categories || []).forEach(function (c) { rows.push([c.Category, c.Season, c.Type, c.Plans, c.Qty].concat(stVals(c.Stages))); });
     rows.push([], [r.chart.title, 'Qty', 'Previous']); r.chart.bars.forEach(function (b) { rows.push([b.l, b.v, b.p]); });
     rows.push([], ['WIP by stage (today)', 'WIP pcs', 'Lots', 'Avg output / day', 'Days of WIP', 'Min days', 'Max days', 'Status']);
     r.funnel.forEach(function (f) { rows.push([f.l, f.Wip, f.Lots, f.AvgOut, f.Days == null ? '' : f.Days, f.Min || '', f.Max || '', (MG_ST[f.Status] || [f.Status])[0]]); });
@@ -1059,13 +1079,14 @@
   function mgPdf() {
     var r = S.mgr; if (!r) return;
     var b = document.body, p1 = $('.mg-p1'), p2 = $('.mg-p2'), title = document.title;
-    b.classList.add('mg-print');
+    b.classList.add('mg-print'); b.classList.remove('mg-flow');
+    if (p1.scrollHeight > 1150) b.classList.add('mg-flow');   /* page 1 runs over: no forced page break before the manpower section */
     [p1, p2].forEach(function (p) {
       p.style.zoom = ''; var hgt = p.scrollHeight, max = 1000;   /* A4 printable height at the print width */
-      if (hgt > max) p.style.zoom = String(Math.floor(max / hgt * 100) / 100);
+      if (hgt > max && hgt <= max * 1.15) p.style.zoom = String(Math.floor(max / hgt * 100) / 100);   /* a little over: shrink to one page; much more (several seasons): let it run onto more pages */
     });
     document.title = 'Factory Production Status ' + mgRange(r) + (r.unit ? ' - ' + r.unit.name : '');
-    var done = function () { b.classList.remove('mg-print'); p1.style.zoom = ''; p2.style.zoom = ''; document.title = title; window.removeEventListener('afterprint', done); };
+    var done = function () { b.classList.remove('mg-print'); b.classList.remove('mg-flow'); p1.style.zoom = ''; p2.style.zoom = ''; document.title = title; window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
     setTimeout(function () { window.print(); setTimeout(function () { if (b.classList.contains('mg-print') && !window.matchMedia('print').matches) done(); }, 1500); }, 60);
   }
