@@ -196,9 +196,9 @@
   }
 
   /* ---------- dashboard (Phase 14) ---------- */
-  var DASH_GO = { FORECAST: 'forecast', CUTOFF: 'planning', AGING: 'wip', MANPOWER: 'manpower', EFFICIENCY: 'efficiency' };
+  var DASH_GO = { FORECAST: 'forecast', CUTOFF: 'planning', AGING: 'tracking', MANPOWER: 'manpower', EFFICIENCY: 'efficiency' };
   var DASH_SEV = { LATE: ['Late', 'off'], AT_RISK: ['At risk', 'warn'], WARN: ['Attention', 'warn'], INFO: ['Info', ''] };
-  var FSTG = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'FG inward', IRONING: 'Ironing', PACKING: 'Packing' };
+  var FSTG = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'FG inward', IRONING: 'Ironing', PACKING: 'Sent to Packing' };
   function csvDownload(name, rows) {
     var txt = rows.map(function (r) { return r.map(function (c) { c = c == null ? '' : String(c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\r\n');
     try {
@@ -215,6 +215,33 @@
     var i = MON.map(function (x) { return x.toLowerCase(); }).indexOf(m[2].toLowerCase()); if (i < 0) return '';
     return m[3] + '-' + (i + 1 < 10 ? '0' : '') + (i + 1) + '-' + (m[1].length < 2 ? '0' : '') + m[1];
   }
+  /* multi-select filter: a button that opens a list of tick boxes ("All units" / "Unit 1, Unit 2" / "3 units") */
+  function msText(label, sel) { return !sel.length ? 'All ' + label.toLowerCase() : (sel.length <= 2 ? sel.join(', ') : sel.length + ' ' + label.toLowerCase() + ' selected'); }
+  function msHtml(k, label, vals, sel) {
+    return '<div class="tf-s ms" data-k="' + k + '" data-l="' + esc(label) + '"><button type="button" class="ms-b" aria-haspopup="true" aria-label="' + esc(label) + '">' + esc(msText(label, sel)) + '</button>' +
+      '<div class="ms-p" hidden><div class="ms-a"><button type="button" class="ms-all">Select all</button><button type="button" class="ms-none">Clear</button></div>' +
+      vals.map(function (v) { return '<label class="ms-o"><input type="checkbox" value="' + esc(v) + '"' + (sel.indexOf(v) >= 0 ? ' checked' : '') + '> <span>' + esc(v) + '</span></label>'; }).join('') + '</div></div>';
+  }
+  function msWire(root, onChange) {
+    Array.prototype.forEach.call(root.querySelectorAll('.ms'), function (m) {
+      var b = m.querySelector('.ms-b'), pnl = m.querySelector('.ms-p'), k = m.getAttribute('data-k'), lab = m.getAttribute('data-l');
+      var vals = function () { return [].slice.call(pnl.querySelectorAll('input:checked')).map(function (i) { return i.value; }); };
+      var fire = function () { var v = vals(); b.textContent = msText(lab, v); m.classList.toggle('on', v.length > 0); onChange(k, v); };
+      m.classList.toggle('on', vals().length > 0);
+      b.addEventListener('click', function (e) { e.stopPropagation(); var open = pnl.hidden; Array.prototype.forEach.call(document.querySelectorAll('.ms-p'), function (x) { x.hidden = true; }); pnl.hidden = !open; });
+      pnl.addEventListener('click', function (e) { e.stopPropagation(); });
+      pnl.addEventListener('change', fire);
+      m.querySelector('.ms-all').onclick = function () { Array.prototype.forEach.call(pnl.querySelectorAll('input'), function (i) { i.checked = true; }); fire(); };
+      m.querySelector('.ms-none').onclick = function () { Array.prototype.forEach.call(pnl.querySelectorAll('input'), function (i) { i.checked = false; }); fire(); };
+    });
+  }
+  function msClear(root, each) {
+    Array.prototype.forEach.call(root.querySelectorAll('.ms'), function (m) {
+      Array.prototype.forEach.call(m.querySelectorAll('input'), function (i) { i.checked = false; });
+      m.querySelector('.ms-b').textContent = msText(m.getAttribute('data-l'), []); m.classList.remove('on'); each(m.getAttribute('data-k'));
+    });
+  }
+  document.addEventListener('click', function () { Array.prototype.forEach.call(document.querySelectorAll('.ms-p'), function (x) { x.hidden = true; }); });
   function enhanceTables() {
     if (TF_SKIP[S.page]) return;
     var root = document.getElementById('view'); if (!root) return;
@@ -244,7 +271,7 @@
       }
       ths.forEach(function (t, i) {
         if (i === unitCol || (unitAttr && /unit/i.test(t))) return;
-        if (i === dcol || !/^(status|unit|season|category|stage|process|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 4) return;
+        if (i === dcol || !/^(status|unit|season|section|category|stage|process|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 6) return;
         var seen = {}, n = 0, long = false;
         Array.prototype.forEach.call(body.rows, function (tr) { var v = cellTxt(tr, i); if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
         if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort(), get: (function (ci) { return function (tr) { return cellTxt(tr, ci); }; })(i) });
@@ -254,7 +281,7 @@
       var bar = document.createElement('div'); bar.className = 'fbar tfbar';
       var R = S.range || {};
       bar.innerHTML = '<input type="search" class="tf-q" placeholder="Search…" value="' + esc(st.q) + '" aria-label="Search">' +
-        fcols.map(function (f, k) { st['f' + k] = st['f' + k] || ''; return '<select class="tf-s" data-k="' + k + '" aria-label="' + esc(f.label) + '"><option value="">All ' + esc(f.label.toLowerCase()) + '</option>' + f.vals.map(function (v) { return '<option' + (st['f' + k] === v ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') + '</select>'; }).join('') +
+        fcols.map(function (f, k) { var cur = st['f' + k]; st['f' + k] = Array.isArray(cur) ? cur.filter(function (v) { return f.vals.indexOf(v) >= 0; }) : (cur ? [cur] : []); return msHtml(k, f.label, f.vals, st['f' + k]); }).join('') +
         (dcol >= 0 ? '<label class="tf-l">From <input type="date" class="tf-f" value="' + esc(R.from || '') + '"></label><label class="tf-l">To <input type="date" class="tf-t" value="' + esc(R.to || '') + '"></label><button class="btn sm ghost tf-c" type="button">Clear</button>' : '') +
         '<select class="tf-o" aria-label="Sort"><option value="">Sort: newest ID first</option>' +
         ths.map(function (t, i) { return t ? '<option value="' + i + ':a">' + esc(t) + ' (A → Z, low → high)</option><option value="' + i + ':d">' + esc(t) + ' (Z → A, high → low)</option>' : ''; }).join('') + '</select>' +
@@ -268,7 +295,7 @@
         if (keep !== true) st.p = 0;
         Array.prototype.forEach.call(body.rows, function (tr) {
           var ok = !q || tr.textContent.toLowerCase().indexOf(q) >= 0;
-          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w && f.get(tr) !== w) ok = false; });
+          fcols.forEach(function (f, k) { var w = st['f' + k]; if (ok && w && w.length && w.indexOf(f.get(tr)) < 0) ok = false; });
           if (ok && dcol >= 0 && (f || t)) {
             var d = dIso(tr.cells[dcol] && tr.cells[dcol].textContent);
             if (d && ((f && d < f) || (t && d > t))) ok = false;
@@ -336,8 +363,8 @@
         th.classList.add('sortable'); th.title = 'Click to sort';
         th.addEventListener('click', function () { var m = /^(\d+):([ad])$/.exec(st.o || ''); doSort(i + ':' + (m && Number(m[1]) === i && m[2] === 'a' ? 'd' : 'a')); });
       });
-      Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.addEventListener('change', function () { st['f' + se.getAttribute('data-k')] = se.value; apply(); }); });
-      if (dcol < 0) { var cb = document.createElement('button'); cb.className = 'btn sm ghost tf-c'; cb.type = 'button'; cb.textContent = 'Clear'; bar.insertBefore(cb, bar.querySelector('.tf-n')); cb.addEventListener('click', function () { qi.value = ''; st.q = ''; Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.value = ''; st['f' + se.getAttribute('data-k')] = ''; }); apply(); }); }
+      msWire(bar, function (k, vals) { st['f' + k] = vals; apply(); });
+      if (dcol < 0) { var cb = document.createElement('button'); cb.className = 'btn sm ghost tf-c'; cb.type = 'button'; cb.textContent = 'Clear'; bar.insertBefore(cb, bar.querySelector('.tf-n')); cb.addEventListener('click', function () { qi.value = ''; st.q = ''; msClear(bar, function (k) { st['f' + k] = []; }); apply(); }); }
       if (dcol >= 0) {
         var fi = bar.querySelector('.tf-f'), ti2 = bar.querySelector('.tf-t');
         var reload = function () {
@@ -346,7 +373,7 @@
           go(S.page, true);
         };
         fi.addEventListener('change', reload); ti2.addEventListener('change', reload);
-        bar.querySelector('.tf-c').addEventListener('click', function () { qi.value = ''; st.q = ''; Array.prototype.forEach.call(bar.querySelectorAll('.tf-s'), function (se) { se.value = ''; st['f' + se.getAttribute('data-k')] = ''; }); if (S.range) { S.range = null; go(S.page, true); } else apply(); });
+        bar.querySelector('.tf-c').addEventListener('click', function () { qi.value = ''; st.q = ''; msClear(bar, function (k) { st['f' + k] = []; }); if (S.range) { S.range = null; go(S.page, true); } else apply(); });
       }
       bar.querySelector('.tf-x').addEventListener('click', function () {
         var keep = []; ths.forEach(function (t, i) { if (t) keep.push(i); });
@@ -699,12 +726,12 @@
       }).join('') + (r.daily.length > 1 ? '<tr><td data-l="Unit"><b>Total</b></td>' + r.procs.map(function (p) { return '<td data-l="' + esc(STAGE[p] || p) + '"><b>' + (r.totals[p] ? fmtNum(r.totals[p]) : '-') + '</b></td>'; }).join('') + '<td></td><td></td><td></td></tr>' : '') + '</tbody></table>' : '<div class="card empty">No units.</div>';
 
     h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 class="sec">Season progress</h3><button class="btn sm ghost" type="button" id="dcsv2">Download CSV</button></div>';
-    h += r.progress.length ? '<table><thead><tr><th>Season</th><th>Plans</th><th>Plan qty</th>' + r.stageKeys.map(function (s) { return '<th>' + esc(FSTG[s]) + '</th>'; }).join('') + '<th>Late / at risk</th></tr></thead><tbody>' +
+    h += r.progress.length ? '<table><thead><tr><th>Season</th><th>Plans</th><th>Planned qty</th>' + r.stageKeys.map(function (s) { return '<th>' + esc(FSTG[s]) + '</th>'; }).join('') + '<th>Late / at risk</th></tr></thead><tbody>' +
       r.progress.map(function (s) {
         return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b></td><td data-l="Plans">' + s.Plans + '</td><td data-l="Plan qty">' + fmtNum(s.Plan_Qty) + '</td>' +
-          s.Stages.filter(function (z) { return r.stageKeys.indexOf(z.k) >= 0; }).map(function (z) { return !z.Applies ? '<td data-l="' + esc(FSTG[z.k]) + '">-</td>' : '<td data-l="' + esc(FSTG[z.k]) + '"><div class="ebar"><i style="width:' + z.Pct + '%"></i></div><b>' + z.Pct + '%</b><div class="cellsub">' + fmtNum(z.Done) + ' pcs</div></td>'; }).join('') +
+          s.Stages.filter(function (z) { return r.stageKeys.indexOf(z.k) >= 0; }).map(function (z) { return !z.Applies ? '<td data-l="' + esc(FSTG[z.k]) + '">-</td>' : '<td data-l="' + esc(FSTG[z.k]) + '"><div class="ebar"><i style="width:' + Math.min(100, z.Pct || 0) + '%"></i></div><b>' + fmtNum(z.Done) + '</b> <span class="cellsub">(' + (z.Pct == null ? '–' : z.Pct + '%') + ')</span><div class="cellsub">' + (z.k === 'FABRIC' ? 'of planned' : (z.PctIssued == null ? '–' : z.PctIssued + '%') + ' of issued') + '</div></td>'; }).join('') +
           '<td data-l="Late / at risk">' + (s.Late ? '<span class="badge off">' + s.Late + ' late</span> ' : '') + (s.AtRisk ? '<span class="badge warn">' + s.AtRisk + ' at risk</span>' : '') + (!s.Late && !s.AtRisk ? '-' : '') + '</td></tr>';
-      }).join('') + '</tbody></table><div class="hint">Progress = pieces through the stage ÷ plan quantity (fabric = issued).</div>' : '<div class="card empty">No active plans in an open season.</div>';
+      }).join('') + '</tbody></table><div class="hint">Each stage: qty (% of planned qty); below = % of fabric issued. Same figures as Season Production Status on the Management Dashboard.</div>' : '<div class="card empty">No active plans in an open season.</div>';
 
     $('#dh').innerHTML = h;
     $('#df').onsubmit = function (e) { e.preventDefault(); S.df.date = $('#df_d').value; S.df.unitId = $('#df_u') ? $('#df_u').value : ''; loadDash(); };
@@ -715,8 +742,8 @@
         [['Total'].concat(r.procs.map(function (p) { return r.totals[p]; }))]));
     };
     $('#dcsv2').onclick = function () {
-      csvDownload('season-progress-' + r.today + '.csv', [['Season', 'Plans', 'Plan qty'].concat(r.stageKeys.map(function (s) { return FSTG[s] + ' pcs'; }), r.stageKeys.map(function (s) { return FSTG[s] + ' %'; }), ['Late', 'At risk'])].concat(
-        r.progress.map(function (s) { return [s.Season, s.Plans, s.Plan_Qty].concat(s.Stages.map(function (z) { return z.Done; }), s.Stages.map(function (z) { return z.Pct; }), [s.Late, s.AtRisk]); })));
+      csvDownload('season-progress-' + r.today + '.csv', [['Season', 'Plans', 'Planned qty'].concat(r.stageKeys.map(function (s) { return FSTG[s] + ' pcs'; }), r.stageKeys.map(function (s) { return FSTG[s] + ' % of planned'; }), r.stageKeys.map(function (s) { return FSTG[s] + ' % of issued'; }), ['Late', 'At risk'])].concat(
+        r.progress.map(function (s) { var by = {}; s.Stages.forEach(function (z) { by[z.k] = z; }); return [s.Season, s.Plans, s.Plan_Qty].concat(r.stageKeys.map(function (k) { return by[k] ? by[k].Done : ''; }), r.stageKeys.map(function (k) { return by[k] ? by[k].Pct : ''; }), r.stageKeys.map(function (k) { return by[k] && by[k].PctIssued != null ? by[k].PctIssued : ''; }), [s.Late, s.AtRisk]); })));
     };
   }
 
@@ -1411,15 +1438,16 @@
     $('#ph').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">A season groups plans. Completing a season closes its active plans and makes it read-only.</div><button class="btn" id="sadd">+ Add season</button></div>';
     $('#sadd').onclick = function () { seasonForm(null); };
     if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No seasons yet. Click “+ Add season”.</div>'; return; }
-    $('#pb').innerHTML = '<table><thead><tr><th>Season</th><th>Start</th><th>Status</th><th>Default sewing cutoff</th><th>Plans (active/total)</th><th>Total qty</th><th>Latest cutoff</th><th></th></tr></thead><tbody>' +
+    var SC = [['Fabric_Cutoff_Date', 'Fabric'], ['Cutting_Cutoff_Date', 'Cutting'], ['Sewing_Cutoff_Date', 'Sewing'], ['Iron_Cutoff_Date', 'Ironing'], ['Pack_Cutoff_Date', 'Packing recv.']];
+    $('#pb').innerHTML = '<table><thead><tr><th>Season</th><th>Status</th><th>Default cutoffs (set at creation)</th><th>Plans (active/total)</th><th>Total qty</th><th>Latest sewing cutoff</th><th></th></tr></thead><tbody>' +
       rows.map(function (s) {
         var open = s.Status === 'IN_PROGRESS';
-        return '<tr><td data-l="Season"><b>' + esc(s.Season_Name) + '</b><div class="cellsub">' + esc(s.Season_ID) + '</div></td>' +
-          '<td data-l="Start">' + esc(dfmt(s.Effective_From)) + '</td>' +
+        var cuts = SC.filter(function (c) { return s[c[0]]; }).map(function (c) { return '<div class="cellsub"><b>' + esc(c[1]) + '</b> ' + esc(dfmt(s[c[0]])) + '</div>'; }).join('');
+        return '<tr><td data-l="Season"><b>' + esc(s.Season_Name) + '</b><div class="cellsub">' + esc(s.Season_ID) + (s.Created ? ' · created ' + esc(dfmt(s.Created)) : '') + '</div></td>' +
           '<td data-l="Status"><span class="badge ' + (open ? 'ok' : 'off') + '">' + (open ? 'In progress' : 'Completed') + '</span></td>' +
-          '<td data-l="Default sewing cutoff">' + (s.Sewing_Cutoff_Date ? esc(dfmt(s.Sewing_Cutoff_Date)) : '-') + '</td><td data-l="Plans">' + s.ActivePlans + ' / ' + s.Plans + '</td>' +
+          '<td data-l="Default cutoffs">' + (cuts || '-') + '</td><td data-l="Plans">' + s.ActivePlans + ' / ' + s.Plans + '</td>' +
           '<td data-l="Total qty">' + fmtNum(s.Plan_Qty) + '</td>' +
-          '<td data-l="Cutoff">' + (s.Cutoff ? esc(dfmt(s.Cutoff)) + ' ' + daysBadge(s.DaysLeft, r.alertDays) : '-') + '</td>' +
+          '<td data-l="Latest cutoff">' + (s.Cutoff ? esc(dfmt(s.Cutoff)) + ' ' + daysBadge(s.DaysLeft, r.alertDays) + (s.Changed ? '<div class="cellsub">changed on the plans</div>' : '') : '-') + '</td>' +
           '<td class="acts-td"><div class="acts">' +
           (open ? '<button class="btn sm ghost" data-a="edit" data-id="' + esc(s._id) + '">Edit</button><button class="btn sm ghost" data-a="done" data-id="' + esc(s._id) + '">Complete</button>'
                 : (S.user.role === 'ADMIN' ? '<button class="btn sm ghost" data-a="reopen" data-id="' + esc(s._id) + '">Reopen</button>' : '')) +
@@ -1444,21 +1472,27 @@
     };
   }
   function seasonForm(s) {
-    var isNew = !s;
+    var isNew = !s, cols = (S.seasons && S.seasons.cutCols) || [], lock = s && !s.canEditCuts;
     openModal('<h3>' + (isNew ? 'Add season' : 'Edit season') + '</h3><form id="sf">' +
       '<label for="sf_n">Season name</label><input id="sf_n" maxlength="60" autocomplete="off" value="' + esc(s ? s.Season_Name : '') + '">' +
-      '<label for="sf_d">Start date</label><input id="sf_d" type="date" value="' + esc(s ? s.Effective_From : '') + '">' +
-      '<label for="sf_c">Default sewing cutoff date (optional)</label><input id="sf_c" type="date" value="' + esc(s ? s.Sewing_Cutoff_Date : '') + '"><div class="hint">Used for every plan of this season that has no cutoff of its own. A category cutoff in the plan grid or a cutoff typed on a plan wins over it.</div>' +
+      '<label style="margin-top:12px">Default cutoff dates</label><div class="mgf">' + cols.map(function (c) {
+        return '<label>' + esc(c.l) + (c.k === 'Sewing_Cutoff_Date' ? ' (main)' : '') + '<input type="date" class="sf_cut" data-k="' + c.k + '" value="' + esc(s ? (s[c.k] || '') : '') + '"' + (lock || !c.ok ? ' disabled' : '') + '></label>';
+      }).join('') + '</div>' +
+      (cols.some(function (c) { return !c.ok; }) ? '<div class="hint">To use the greyed dates, add these columns to the Seasons sheet (row 1): ' + esc(cols.filter(function (c) { return !c.ok; }).map(function (c) { return c.k; }).join(', ')) + '.</div>' : '') +
+      '<div class="hint">' + (lock ? 'This season already has plans, so its default cutoffs are fixed. Change the dates on the plans instead.' : 'Every new plan of this season starts with these dates; you can change them on a plan.') + '</div>' +
       '<div class="row"><button type="button" class="btn ghost" id="sf_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>',
       function () {
         $('#sf_x').onclick = closeModal;
         $('#sf').onsubmit = function (ev) {
           ev.preventDefault();
-          api('seasonSave', { id: s ? s._id : '', fields: { Season_Name: $('#sf_n').value, Effective_From: $('#sf_d').value, Sewing_Cutoff_Date: $('#sf_c').value } })
+          var f = { Season_Name: $('#sf_n').value };
+          Array.prototype.forEach.call(document.querySelectorAll('.sf_cut'), function (i) { if (!i.disabled) f[i.getAttribute('data-k')] = i.value; });
+          api('seasonSave', { id: s ? s._id : '', fields: f })
             .then(function () { closeModal(); toast('Saved', 'ok'); return loadPlanning(); }).catch(fail);
         };
       });
   }
+  var PLAN_DISP = { ACTIVE: ['Active', 'ok'], FABRIC_DONE: ['Fabric issue completed', ''], COMPLETED: ['Completed', 'ok'], SEASON_DONE: ['Season completed', 'off'], CANCELLED: ['Cancelled', 'off'] };
   function paintPlans() {
     var r = S.plans, rows = r.rows, canWrite = !!r.refs;
     var seasonOpts = '';
@@ -1477,17 +1511,18 @@
     }
     if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No plans' + (canWrite ? ' yet. Click “+ Add plan”.' : ' for your unit yet.') + '</div>'; return; }
     var total = rows.reduce(function (a, x) { return a + (x.Status === 'ACTIVE' ? x.Plan_Qty : 0); }, 0);
-    $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Section</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (p) {
         var act = p.Status === 'ACTIVE';
         return '<tr data-unit="' + esc(p.Unit) + '"><td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
-          '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
+          '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Section">' + esc(p.Section) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + '</td>' +
-          '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Iron &amp; pack', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
-          '<td data-l="Status"><span class="badge ' + (act ? 'ok' : 'off') + '">' + (act ? 'Active' : 'Closed') + '</span>' + (p.Fit_Status === 'OVER' ? ' <span class="badge warn" title="' + esc(p.Fit_Reason) + '">Over capacity</span><div class="cellsub" style="white-space:normal">' + esc(p.Fit_Reason) + '</div>' : '') + (p.Order_ID ? '<div class="cellsub">' + esc(p.Order_ID) + '</div>' : '') + '</td>' +
+          '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Ironing', p.Iron_Cutoff_Date], ['Packing recv.', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
+          '<td data-l="Status"><span class="badge ' + (PLAN_DISP[p.Display] || ['', ''])[1] + '">' + esc((PLAN_DISP[p.Display] || [p.Status])[0]) + '</span>' + (p.Lots ? '<div class="cellsub">' + p.LotsPacked + ' of ' + p.Lots + ' lot(s) packed</div>' : '') + (p.Fit_Status === 'OVER' ? ' <span class="badge warn" title="' + esc(p.Fit_Reason) + '">Over capacity</span><div class="cellsub" style="white-space:normal">' + esc(p.Fit_Reason) + '</div>' : '') + (p.Order_ID ? '<div class="cellsub">' + esc(p.Order_ID) + '</div>' : '') + '</td>' +
           (canWrite ? '<td class="acts-td"><div class="acts">' +
             (p.canEdit ? '<button class="btn sm ghost" data-a="edit" data-id="' + esc(p._id) + '">Edit</button>' : '') +
-            (p.SeasonOpen ? '<button class="btn sm ghost" data-a="tg" data-id="' + esc(p._id) + '">' + (act ? 'Close' : 'Reopen') + '</button>' : '') +
+            (p.SeasonOpen && p.Status !== 'CANCELLED' ? '<button class="btn sm ghost" data-a="tg" data-id="' + esc(p._id) + '"' + (act ? ' title="Mark fabric issue as complete for this plan"' : '') + '>' + (act ? 'Issue complete' : 'Reopen') + '</button>' : '') +
+            (p.canCancel ? '<button class="btn sm ghost" data-a="cx" data-id="' + esc(p._id) + '">Cancel</button>' : '') +
             '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table><div class="hint" style="margin-top:8px">Active plan quantity shown: <b>' + fmtNum(total) + '</b> pcs</div>';
     $('#pb').onclick = function (e) {
@@ -1495,13 +1530,18 @@
       var id = e.target.getAttribute('data-id');
       var p = rows.filter(function (x) { return x._id === id; })[0]; if (!p) return;
       if (a === 'edit') planForm(p);
-      else {
-        var next = p.Status === 'ACTIVE' ? 'CLOSED' : 'ACTIVE';
-        confirmBox(next === 'CLOSED' ? 'Close plan ' + p.Plan_ID + '?' : 'Reopen plan ' + p.Plan_ID + '?',
-          next === 'CLOSED' ? 'A closed plan is read-only and no longer raises cutoff alerts.' : 'The plan becomes active and editable again.',
-          next === 'CLOSED' ? 'Close' : 'Reopen', next === 'CLOSED').then(function (ok) {
+      else if (a === 'cx') {
+        confirmBox('Cancel plan ' + p.Plan_ID + '?', 'No fabric is issued against this plan. A cancelled plan is removed from the planned quantities and cannot be used again.', 'Cancel plan', true).then(function (ok) {
           if (!ok) return;
-          api('planSetStatus', { id: id, status: next }).then(function () { toast(next === 'CLOSED' ? 'Plan closed' : 'Plan reopened', 'ok'); return loadPlanning(); }).catch(fail);
+          api('planSetStatus', { id: id, status: 'CANCELLED' }).then(function () { toast('Plan cancelled', 'ok'); return loadPlanning(); }).catch(fail);
+        });
+      } else {
+        var next = p.Status === 'ACTIVE' ? 'CLOSED' : 'ACTIVE';
+        confirmBox(next === 'CLOSED' ? 'Fabric issue complete for plan ' + p.Plan_ID + '?' : 'Reopen plan ' + p.Plan_ID + '?',
+          next === 'CLOSED' ? 'No more fabric can be issued against this plan. Its lots keep moving through production; the plan shows "Completed" when every lot reaches packing.' : 'The plan becomes active and editable again.',
+          next === 'CLOSED' ? 'Fabric issue complete' : 'Reopen', false).then(function (ok) {
+          if (!ok) return;
+          api('planSetStatus', { id: id, status: next }).then(function () { toast(next === 'CLOSED' ? 'Fabric issue completed' : 'Plan reopened', 'ok'); return loadPlanning(); }).catch(fail);
         });
       }
     };
@@ -1551,7 +1591,9 @@
       '<div id="pf_g2"><label for="pf_fc">Fabric cutoff date (optional)</label><input id="pf_fc" type="date" value="' + esc(p ? p.Fabric_Cutoff_Date : '') + '">' +
       '<div id="pf_cg"><label for="pf_cc">Cutting cutoff date (optional)</label><input id="pf_cc" type="date" value="' + esc(p ? p.Cutting_Cutoff_Date : '') + '"></div>' +
       '<label for="pf_d" id="pf_dl">Sewing cutoff date</label><input id="pf_d" type="date" value="' + esc(p ? p.Cutoff_Date : '') + '"></div>' +
-      '<label for="pf_ic" id="pf_icl">Ironing &amp; packing cutoff date (optional)</label><input id="pf_ic" type="date" value="' + esc(p ? p.IronPack_Cutoff_Date : '') + '">' +
+      (S.plans.ironCol ? '<label for="pf_irc">Ironing out cutoff date (optional)</label><input id="pf_irc" type="date" value="' + esc(p ? p.Iron_Cutoff_Date : '') + '">' : '') +
+      '<label for="pf_ic" id="pf_icl">Packing receive cutoff date (optional)</label><input id="pf_ic" type="date" value="' + esc(p ? p.IronPack_Cutoff_Date : '') + '">' +
+      (isNew ? '<div class="hint">Blank dates take the season\'s default cutoffs.</div>' : '') +
       '<div id="pf_g3"><div id="pf_fit"><div class="hint">Select unit, category, quantity and sewing cutoff to check the capacity.</div></div></div>' +
       '<div id="pf_rw" hidden><label for="pf_rs">Reason for confirming a plan that does not fit</label><input id="pf_rs" maxlength="200" autocomplete="off" value="' + esc(p && p.Fit_Status === 'OVER' ? p.Fit_Reason : '') + '"></div>' +
       '<label for="pf_r">Remarks (optional)</label><input id="pf_r" maxlength="200" autocomplete="off" value="' + esc(p ? p.Remarks : '') + '">' +
@@ -1577,7 +1619,7 @@
           $('#pf_g1').hidden = io; $('#pf_g2').hidden = io; $('#pf_g3').hidden = io; $('#pf_oh').hidden = io;
           if (io) { needReason = false; $('#pf_rw').hidden = true; }
           if (isNew) $('#pf_th').hidden = !io;
-          $('#pf_icl').innerHTML = io ? 'Ironing &amp; packing cutoff date' : 'Ironing &amp; packing cutoff date (optional)';
+          $('#pf_icl').innerHTML = io ? 'Packing receive cutoff date' : 'Packing receive cutoff date (optional)';
           var jw = !io && isJW();
           $('#pf_dl').textContent = jw ? 'FG inward cutoff date (job work unit)' : 'Sewing cutoff date'; $('#pf_cg').hidden = jw;
           if (jw) { needReason = false; $('#pf_rw').hidden = true; }
@@ -1596,11 +1638,12 @@
         check.n = 0;
         function later() { clearTimeout(timer); timer = setTimeout(check, 400); }
         function defCut() {
-          if ($('#pf_d').value) return;
           var o = orders.filter(function (x) { return x.id === $('#pf_o').value; })[0], se = isNew ? $('#pf_se').value : p.Season_ID;
           var sc = refs.Season_ID.filter(function (x) { return x.id === se; })[0];
           var v = (o && o.cutoff) || (sc && sc.cutoff) || '';
-          if (v) $('#pf_d').value = v;
+          if (v && !$('#pf_d').value) $('#pf_d').value = v;
+          /* other stage dates: the season defaults */
+          if (sc && isNew) [['#pf_fc', 'Fabric_Cutoff_Date'], ['#pf_cc', 'Cutting_Cutoff_Date'], ['#pf_irc', 'Iron_Cutoff_Date'], ['#pf_ic', 'IronPack_Cutoff_Date']].forEach(function (x) { var el = $(x[0]); if (el && !el.value && sc[x[1]]) el.value = sc[x[1]]; });
         }
         fillOrders(); defCut(); applyType();
         if (isNew) $('#pf_t').onchange = function () { applyType(); if (!isIO()) later(); };
@@ -1618,7 +1661,7 @@
         $('#pf_d').onchange = later;
         $('#pf').onsubmit = function (ev) {
           ev.preventDefault();
-          var f = { Category_ID: $('#pf_c').value, Unit_ID: $('#pf_u').value, Plan_Qty: $('#pf_q').value, Cutoff_Date: $('#pf_d').value, Fabric_Cutoff_Date: $('#pf_fc').value, Cutting_Cutoff_Date: $('#pf_cc').value, IronPack_Cutoff_Date: $('#pf_ic').value, Remarks: $('#pf_r').value, Order_ID: $('#pf_o').value };
+          var f = { Category_ID: $('#pf_c').value, Unit_ID: $('#pf_u').value, Plan_Qty: $('#pf_q').value, Cutoff_Date: $('#pf_d').value, Fabric_Cutoff_Date: $('#pf_fc').value, Cutting_Cutoff_Date: $('#pf_cc').value, IronPack_Cutoff_Date: $('#pf_ic').value, Iron_Cutoff_Date: $('#pf_irc') ? $('#pf_irc').value : '', Remarks: $('#pf_r').value, Order_ID: $('#pf_o').value };
           if ($('#pf_sub')) f.Sub_Type = $('#pf_sub').value;
           if (isNew) { f.Season_ID = $('#pf_se').value; f.Plan_Type = $('#pf_t').value; }
           if (isIO()) { f.Cutoff_Date = ''; f.Fabric_Cutoff_Date = ''; f.Cutting_Cutoff_Date = ''; f.Order_ID = ''; }
@@ -2181,7 +2224,7 @@
   function loadSewFin() { return api('sewFinList').then(function (r) { S.sf = r; paintSewFin(); }).catch(fail); }
   function paintSewFin() {
     var r = S.sf, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Move QC-checked pieces to the next process – pass, damage and cancel are recorded separately, each limited to what QC checked (washing if the lot needs it, otherwise ironing) in as many entries as needed. Tick <b>last entry</b> to close sewing for the lot.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Move QC-checked pieces to the next process – pass, damage and cancel are recorded separately, each limited to what QC checked (washing if the lot needs it, otherwise ironing) in as many entries as needed. Sewing closes by itself once cutting is closed and everything cut has been moved; pieces lost in sewing are entered as damage or cancel.</div>';
     h += '<h3 class="sec">Lots in sewing</h3>';
     h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>QC checked</th><th>Moved</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
@@ -2200,7 +2243,7 @@
       var t = e.target; if (!t.getAttribute) return;
       if (t.getAttribute('data-lot')) return finForm(t.getAttribute('data-lot'));
       var id = t.getAttribute('data-xf');
-      if (id) confirmBox('Cancel ' + id + '?', 'This move entry will be cancelled (and sewing reopened if it was the last entry).', 'Cancel entry', true).then(function (ok) {
+      if (id) confirmBox('Cancel ' + id + '?', 'This move entry will be cancelled (and sewing reopened if it had closed).', 'Cancel entry', true).then(function (ok) {
         if (ok) api('sewFinCancel', { id: id }).then(function () { toast('Entry cancelled', 'ok'); return loadSewFin(); }).catch(fail);
       });
     };
@@ -2214,7 +2257,6 @@
       '<label for="ff_g">Damage pieces (ready ' + fmtNum(Math.max(0, lot.ToMoveDamage)) + ')</label><input id="ff_g" type="number" min="0" step="1" inputmode="numeric" value="' + Math.max(0, lot.ToMoveDamage) + '">' +
       '<label for="ff_c">Cancel pieces (ready ' + fmtNum(Math.max(0, lot.ToMoveCancel)) + ')</label><input id="ff_c" type="number" min="0" step="1" inputmode="numeric" value="' + Math.max(0, lot.ToMoveCancel) + '">' +
       '<div class="hint" id="ff_s" style="margin-top:8px"></div>' +
-      '<label class="chk"><input type="checkbox" id="ff_f"> <span>Last entry – close sewing for this lot</span></label>' +
       '<label for="ff_r">Remarks (optional)</label><input id="ff_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="ff_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function calc() { $('#ff_s').innerHTML = 'Total moving <b>' + fmtNum((Number($('#ff_p').value) || 0) + (Number($('#ff_g').value) || 0) + (Number($('#ff_c').value) || 0)) + '</b>'; }
@@ -2222,12 +2264,8 @@
       $('#ff_x').onclick = closeModal;
       $('#ff').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, final: $('#ff_f').checked, remarks: $('#ff_r').value };
-        var send = function (ov) { return api('sewFinSave', Object.assign({ confirmOver: ov }, pay)).then(function (res) { closeModal(); toast(res.closed ? 'Moved – sewing closed' : 'Moved', 'ok'); return loadSewFin(); }); };
-        send(false).catch(function (e) {
-          if (e.code !== 'OVER') return fail(e);
-          confirmBox('Close sewing?', e.message.replace(' Confirm to continue.', '') + ' Close anyway?', 'Close sewing', true).then(function (ok) { if (ok) send(true).catch(fail); });
-        });
+        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, remarks: $('#ff_r').value };
+        api('sewFinSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'Moved – sewing closed' : 'Moved', 'ok'); return loadSewFin(); }).catch(fail);
       };
     });
   }
@@ -2239,7 +2277,7 @@
   function loadWash() { return api('washList').then(function (r) { S.wl = r; paintWash(); }).catch(fail); }
   function paintWash() {
     var r = S.wl, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">After sewing is closed, send pieces to the washing unit in as many entries as needed (name of the outside unit, date, qty). Record each receive from washing; tick <b>last receive</b> when nothing more is coming back.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">As soon as sewing moves pieces, send them to the washing unit in as many entries as needed (name of the outside unit, date, qty). Record each receive from washing; tick <b>last receive</b> when nothing more is coming back.</div>';
     h += '<h3 class="sec">Lots for washing</h3>';
     h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Sewing moved</th><th>Sent</th><th>To send</th><th>At washing unit</th><th>Received</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
@@ -2313,7 +2351,7 @@
   function loadWashMv() { return api('washMvList').then(function (r) { S.wm = r; paintWashMv(); }).catch(fail); }
   function paintWashMv() {
     var r = S.wm, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Move pieces received from washing to ironing. Record pass, damage and cancel pieces separately – this is the washing quality result. Total moved cannot exceed the qty received, in as many entries as needed. Tick <b>last entry</b> to close washing for the lot.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Move pieces received from washing to ironing. Record pass, damage and cancel pieces separately – this is the washing quality result. Total moved cannot exceed the qty received, in as many entries as needed. Washing closes by itself once receiving is closed and everything received has been moved.</div>';
     h += '<h3 class="sec">Lots in washing</h3>';
     h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Received</th><th>Moved</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
@@ -2332,7 +2370,7 @@
       var t = e.target; if (!t.getAttribute) return;
       if (t.getAttribute('data-lot')) return washMvForm(t.getAttribute('data-lot'));
       var id = t.getAttribute('data-xm');
-      if (id) confirmBox('Cancel ' + id + '?', 'This move entry will be cancelled (and washing reopened if it was the last entry).', 'Cancel entry', true).then(function (ok) {
+      if (id) confirmBox('Cancel ' + id + '?', 'This move entry will be cancelled (and washing reopened if it had closed).', 'Cancel entry', true).then(function (ok) {
         if (ok) api('washMvCancel', { id: id }).then(function () { toast('Entry cancelled', 'ok'); return loadWashMv(); }).catch(fail);
       });
     };
@@ -2347,19 +2385,14 @@
       '<label for="ff_g">Damage pieces (carried from sewing: ' + fmtNum(lot.SewDamage) + ')</label><input id="ff_g" type="number" min="0" step="1" inputmode="numeric" value="' + wd + '">' +
       '<label for="ff_c">Cancel pieces (carried from sewing: ' + fmtNum(lot.SewCancel) + ')</label><input id="ff_c" type="number" min="0" step="1" inputmode="numeric" value="' + wc + '">' +
       '<div class="hint" id="ff_s" style="margin-top:8px"></div>' +
-      '<label class="chk"><input type="checkbox" id="ff_f"> <span>Last entry – close washing for this lot</span></label>' +
       '<label for="ff_r">Remarks (optional)</label><input id="ff_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="ff_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function calc() { var t = (Number($('#ff_p').value) || 0) + (Number($('#ff_g').value) || 0) + (Number($('#ff_c').value) || 0); $('#ff_s').innerHTML = 'Total moving <b>' + fmtNum(t) + '</b> · left after <b>' + fmtNum(ready - t) + '</b>' + (t > ready ? ' <span style="color:var(--bad)">· more than received</span>' : ''); }
       calc(); $('#ff').oninput = calc; $('#ff_x').onclick = closeModal;
       $('#ff').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, final: $('#ff_f').checked, remarks: $('#ff_r').value };
-        var send = function (ov) { return api('washMvSave', Object.assign({ confirmOver: ov }, pay)).then(function (res) { closeModal(); toast(res.closed ? 'Moved – washing closed' : 'Moved', 'ok'); return loadWashMv(); }); };
-        send(false).catch(function (e) {
-          if (e.code !== 'OVER') return fail(e);
-          confirmBox('Close washing?', e.message.replace(' Confirm to continue.', '') + ' Close anyway?', 'Close washing', true).then(function (ok) { if (ok) send(true).catch(fail); });
-        });
+        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, remarks: $('#ff_r').value };
+        api('washMvSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'Moved – washing closed' : 'Moved', 'ok'); return loadWashMv(); }).catch(fail);
       };
     });
   }
@@ -2401,18 +2434,13 @@
       openModal('<h3>' + c.formTitle + ' – ' + esc(lot.Lot_No) + '</h3><div class="hint">' + c.hint(lot) + ' · can enter <b>' + fmtNum(avail) + '</b></div>' +
         '<form id="qf"><label for="qf_d">Date</label><input id="qf_d" type="date" max="' + todayStr() + '" value="' + todayStr() + '">' +
         '<label for="qf_q">' + c.qtyLabel + '</label><input id="qf_q" type="number" min="1" step="1" inputmode="numeric" value="' + avail + '">' +
-        (c.final ? '<label class="chk"><input type="checkbox" id="qf_f"> <span>' + c.final + '</span></label>' : '') +
         '<label for="qf_r">Remarks (optional)</label><input id="qf_r" maxlength="200" autocomplete="off">' +
         '<div class="row"><button type="button" class="btn ghost" id="qf_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
         $('#qf_x').onclick = closeModal;
         $('#qf').onsubmit = function (ev) {
           ev.preventDefault();
-          var pay = { lotId: lotId, date: $('#qf_d').value, qty: $('#qf_q').value, remarks: $('#qf_r').value, final: c.final ? $('#qf_f').checked : false };
-          var send = function (ov) { return api(c.save, Object.assign({ confirmOver: ov }, pay)).then(function () { closeModal(); toast('Saved', 'ok'); return load(); }); };
-          send(false).catch(function (e) {
-            if (e.code !== 'OVER') return fail(e);
-            confirmBox('Close?', e.message.replace(' Confirm to continue.', '') + ' Close anyway?', 'Close', true).then(function (ok) { if (ok) send(true).catch(fail); });
-          });
+          var pay = { lotId: lotId, date: $('#qf_d').value, qty: $('#qf_q').value, remarks: $('#qf_r').value };
+          api(c.save, pay).then(function (r) { closeModal(); toast(r && r.closed ? 'Saved – ' + (c.closedMsg || 'closed') : 'Saved', 'ok'); return load(); }).catch(fail);
         };
       });
     }
@@ -2431,17 +2459,17 @@
   var viewStick = qtyScreen({
     title: 'Stickering Output', key: 'sk', list: 'stickList', save: 'stickSave', cancel: 'stickCancel', btn: 'Add output', formTitle: 'Stickering output', qtyLabel: 'Stickering output qty',
     help: 'Stickering handles pass pieces only. Enter stickered pieces as many times as needed; the total cannot exceed the pieces that passed ironing QC. Use <b>Sent to Packing</b> to hand over pass, damage and cancel pieces.',
-    lotsTitle: 'Lots in stickering – balance pending', emptyLots: 'No lot has balance to sticker (ironing must be closed with the last QC entry).', rowsTitle: 'Stickering entries', finalBadge: '',
+    lotsTitle: 'Lots in stickering – balance pending', emptyLots: 'No lot has balance to sticker (pieces must pass ironing QC first).', rowsTitle: 'Stickering entries', finalBadge: '',
     cols: [['QC pass', function (x) { return x.QcPass; }], ['Stickered', function (x) { return x.Stickered; }], ['To sticker', function (x) { return x.ToSticker; }, 1]],
     avail: function (x) { return x.ToSticker; }, hint: function (x) { return 'Ironing QC pass ' + fmtNum(x.QcPass) + ' · stickered ' + fmtNum(x.Stickered); }
   });
   var viewPackRecv = qtyScreen({
     title: 'Packing – Received', key: 'pr', list: 'packRecvList', save: 'packRecvSave', cancel: 'packRecvCancel', btn: 'Receive', formTitle: 'Receive in packing', qtyLabel: 'Qty received',
-    help: 'Record the pieces received from stickering, as many times as needed. Tick <b>last receive</b> to close packing – the lot is then PACKED.',
+    help: 'Record the pieces received from stickering, as many times as needed. Packing closes by itself once stickering is closed and everything sent has been received – the lot is then PACKED.',
     lotsTitle: 'Lots in packing – balance pending', emptyLots: 'No lot is waiting to be received.', rowsTitle: 'Received entries', finalBadge: 'Last receive',
     cols: [['Sent', function (x) { return x.Sent; }], ['Received', function (x) { return x.Received; }], ['To receive', function (x) { return x.ToRecv; }, 1]],
     avail: function (x) { return x.ToRecv; }, hint: function (x) { return 'Sent ' + fmtNum(x.Sent) + ' · received ' + fmtNum(x.Received); },
-    final: 'Last receive – close packing for this lot'
+    closedMsg: 'lot packed'
   });
   /* ---- ironing QC ---- */
   function viewIronQc(el) {
@@ -2451,7 +2479,7 @@
   function loadIronQc() { return api('ironQcList').then(function (r) { S.iq = r; paintIronQc(); }).catch(fail); }
   function paintIronQc() {
     var r = S.iq, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Enter QC results for ironed pieces as many times as needed: pass, damage (fabric defect / unit defect), cancel and alteration. Checked = pass + damage + cancel, limited to the ironing output. Tick <b>last QC entry</b> to close ironing – the lot then moves to stickering with the QC pass qty.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Enter QC results for ironed pieces as many times as needed: pass, damage (fabric defect / unit defect), cancel and alteration. Checked = pass + damage + cancel, limited to the ironing output. Pass pieces can be stickered right away. Ironing closes by itself once the previous process is closed and every piece received has been checked.</div>';
     var open = r.lots.filter(function (x) { return x.ToQC > 0; }), done = r.lots.filter(function (x) { return x.ToQC <= 0 && x.Ironed > 0; });
     function row(x, btn) {
       return '<tr>' + lotHead(x) + '<td data-l="Received">' + fmtNum(x.Src) + '</td><td data-l="Ironed">' + fmtNum(x.Ironed) + '</td><td data-l="Checked">' + fmtNum(x.QcTotal) + '</td><td data-l="Balance"><b>' + fmtNum(Math.max(0, x.ToQC)) + '</b></td>' +
@@ -2476,7 +2504,7 @@
       var t = e.target; if (!t.getAttribute) return;
       if (t.getAttribute('data-lot')) return ironQcForm(t.getAttribute('data-lot'));
       var id = t.getAttribute('data-xq');
-      if (id) confirmBox('Cancel ' + id + '?', 'This QC entry will be cancelled (and ironing reopened if it was the last entry).', 'Cancel entry', true).then(function (ok) {
+      if (id) confirmBox('Cancel ' + id + '?', 'This QC entry will be cancelled (and ironing reopened if it had closed).', 'Cancel entry', true).then(function (ok) {
         if (ok) api('ironQcCancel', { id: id }).then(function () { toast('Entry cancelled', 'ok'); return loadIronQc(); }).catch(fail);
       });
     };
@@ -2492,7 +2520,6 @@
       '<label for="qf_c">Cancel pieces (carried from ' + (lot.Washing ? 'washing' : 'sewing') + ': ' + fmtNum(lot.PrevCancel) + ')</label><input id="qf_c" type="number" min="0" step="1" inputmode="numeric" value="' + carryC + '">' +
       '<label for="qf_a">Alteration pieces</label><input id="qf_a" type="number" min="0" step="1" inputmode="numeric" value="0">' +
       '<div class="hint" id="qf_s" style="margin-top:8px"></div>' +
-      '<label class="chk"><input type="checkbox" id="qf_f"> <span>Last QC entry – close ironing for this lot</span></label>' +
       '<label for="qf_r">Remarks (optional)</label><input id="qf_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="qf_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function n(id) { return Number($(id).value) || 0; }
@@ -2503,12 +2530,8 @@
       calc(); $('#qf').oninput = calc; $('#qf_x').onclick = closeModal;
       $('#qf').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { lotId: lotId, date: $('#qf_d').value, pass: $('#qf_p').value, fabric: $('#qf_g').value, unitDefect: $('#qf_u').value, cancel: $('#qf_c').value, alteration: $('#qf_a').value, final: $('#qf_f').checked, remarks: $('#qf_r').value };
-        var send = function (ov) { return api('ironQcSave', Object.assign({ confirmOver: ov }, pay)).then(function (res) { closeModal(); toast(res.closed ? 'QC saved – ironing closed' : 'QC saved', 'ok'); return loadIronQc(); }); };
-        send(false).catch(function (e) {
-          if (e.code !== 'OVER') return fail(e);
-          confirmBox('Close ironing?', e.message.replace(' Confirm to continue.', '') + ' Close anyway?', 'Close ironing', true).then(function (ok) { if (ok) send(true).catch(fail); });
-        });
+        var pay = { lotId: lotId, date: $('#qf_d').value, pass: $('#qf_p').value, fabric: $('#qf_g').value, unitDefect: $('#qf_u').value, cancel: $('#qf_c').value, alteration: $('#qf_a').value, remarks: $('#qf_r').value };
+        api('ironQcSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'QC saved – ironing closed' : 'QC saved', 'ok'); return loadIronQc(); }).catch(fail);
       };
     });
   }
@@ -2520,7 +2543,7 @@
   function loadPackSend() { return api('packSendList').then(function (r) { S.ps = r; paintPackSend(); }).catch(fail); }
   function paintPackSend() {
     var r = S.ps, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Send pieces to packing – pass, damage and cancel are recorded separately, in as many entries as needed. Pass is limited to the stickered qty; damage (fabric + unit defects) and cancel are limited to the ironing QC results, so the total matches the ironing QC. Tick <b>last entry</b> to close stickering for the lot.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Send pieces to packing – pass, damage and cancel are recorded separately, in as many entries as needed. Pass is limited to the stickered qty; damage (fabric + unit defects) and cancel are limited to the ironing QC results, so the total matches the ironing QC. Stickering closes by itself once ironing is closed and everything checked has been sent.</div>';
     var pend = r.lots.filter(function (x) { return x.ToSend > 0; }), none = r.lots.filter(function (x) { return x.ToSend <= 0; });
     function lrow(x, btn) {
       return '<tr>' + lotHead(x) + '<td data-l="IQC checked">' + fmtNum(x.QcTotal) + '<div class="cellsub">Pass ' + fmtNum(x.QcPass) + ' · Damage ' + fmtNum(x.QcDamage) + ' · Cancel ' + fmtNum(x.QcCancel) + '</div></td><td data-l="Stickered (pass)">' + fmtNum(x.Stickered) + '</td><td data-l="Sent">' + fmtNum(x.Sent) + '<div class="cellsub">Pass ' + fmtNum(x.SentPass) + ' · Damage ' + fmtNum(x.SentDamage) + ' · Cancel ' + fmtNum(x.SentCancel) + '</div></td><td data-l="Ready to send"><b>' + fmtNum(Math.max(0, x.ToSend)) + '</b></td>' +
@@ -2543,7 +2566,7 @@
       var t = e.target; if (!t.getAttribute) return;
       if (t.getAttribute('data-lot')) return packSendForm(t.getAttribute('data-lot'));
       var id = t.getAttribute('data-x');
-      if (id) confirmBox('Cancel ' + id + '?', 'This entry will be cancelled (and stickering reopened if it was the last entry).', 'Cancel entry', true).then(function (ok) {
+      if (id) confirmBox('Cancel ' + id + '?', 'This entry will be cancelled (and stickering reopened if it had closed).', 'Cancel entry', true).then(function (ok) {
         if (ok) api('packSendCancel', { id: id }).then(function () { toast('Entry cancelled', 'ok'); return loadPackSend(); }).catch(fail);
       });
     };
@@ -2557,19 +2580,14 @@
       '<label for="ff_g">Damage pieces (fabric + unit defects from ironing QC, ready ' + fmtNum(rd) + ')</label><input id="ff_g" type="number" min="0" step="1" inputmode="numeric" value="' + rd + '">' +
       '<label for="ff_c">Cancel pieces (from ironing QC, ready ' + fmtNum(rc) + ')</label><input id="ff_c" type="number" min="0" step="1" inputmode="numeric" value="' + rc + '">' +
       '<div class="hint" id="ff_s" style="margin-top:8px"></div>' +
-      '<label class="chk"><input type="checkbox" id="ff_f"> <span>Last entry – close stickering for this lot</span></label>' +
       '<label for="ff_r">Remarks (optional)</label><input id="ff_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="ff_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function calc() { var t = (Number($('#ff_p').value) || 0) + (Number($('#ff_g').value) || 0) + (Number($('#ff_c').value) || 0); $('#ff_s').innerHTML = 'Total sending <b>' + fmtNum(t) + '</b> · left after <b>' + fmtNum(ready - t) + '</b>' + ((Number($('#ff_p').value) || 0) > rp || (Number($('#ff_g').value) || 0) > rd || (Number($('#ff_c').value) || 0) > rc ? ' <span style="color:var(--bad)">· more than available for a type</span>' : ''); }
       calc(); $('#ff').oninput = calc; $('#ff_x').onclick = closeModal;
       $('#ff').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, final: $('#ff_f').checked, remarks: $('#ff_r').value };
-        var send = function (ov) { return api('packSendSave', Object.assign({ confirmOver: ov }, pay)).then(function (res) { closeModal(); toast(res.closed ? 'Sent – stickering closed' : 'Sent', 'ok'); return loadPackSend(); }); };
-        send(false).catch(function (e) {
-          if (e.code !== 'OVER') return fail(e);
-          confirmBox('Close stickering?', e.message.replace(' Confirm to continue.', '') + ' Close anyway?', 'Close stickering', true).then(function (ok) { if (ok) send(true).catch(fail); });
-        });
+        var pay = { lotId: lotId, date: $('#ff_d').value, pass: $('#ff_p').value, damage: $('#ff_g').value, cancel: $('#ff_c').value, remarks: $('#ff_r').value };
+        api('packSendSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'Sent – stickering closed' : 'Sent', 'ok'); return loadPackSend(); }).catch(fail);
       };
     });
   }
@@ -3175,7 +3193,7 @@
   function loadCut() { return api('cutList').then(function (r) { S.cut = r; paintCut(); }).catch(fail); }
   function paintCut() {
     var r = S.cut, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Enter the pieces cut for a lot (daily or in one go). Tick <b>cutting complete</b> on the final entry – the lot then moves to sewing. Cutting is possible only for laid quantity.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Enter the pieces cut for a lot (daily or in one go). Sewing can start as soon as pieces are cut. Cutting may differ from the laid qty; it closes by itself once layering is closed and the cut qty reaches the laid qty. For a short cut, tick <b>cutting complete</b> on the last entry.</div>';
     h += '<h3 class="sec">Waiting for cutting</h3>';
     h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Laid</th><th>Cut</th><th>To cut</th><th>Layering</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
@@ -3206,21 +3224,22 @@
     openModal('<h3>Cutting – ' + esc(lot.Lot_No) + '</h3><div class="hint">Laid ' + fmtNum(lot.Laid) + ' · cut so far ' + fmtNum(lot.Cut) + ' · to cut ' + fmtNum(lot.PendingCut) + '</div>' +
       '<form id="cf"><label for="cf_d">Date</label><input id="cf_d" type="date" max="' + todayStr() + '" value="' + todayStr() + '">' +
       '<label for="cf_q">Pieces cut</label><input id="cf_q" type="number" min="1" step="1" inputmode="numeric" value="' + Math.max(lot.PendingCut, 0) + '">' +
-      '<label class="chk"><input type="checkbox" id="cf_f"> <span>Cutting complete for this lot</span></label>' +
+      '<div class="hint" id="cf_s" style="margin-top:8px"></div>' +
+      '<label class="chk" id="cf_fl" hidden><input type="checkbox" id="cf_f"> <span>Cutting complete (short cut) – close cutting for this lot</span></label>' +
       '<label for="cf_r">Remarks (optional)</label><input id="cf_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="cf_x">Back</button><button class="btn" type="submit">Save</button></div></form>', function () {
       $('#cf_x').onclick = closeModal;
+      function calc() {
+        var t = lot.Cut + (Number($('#cf_q').value) || 0), short = lot.LayClosed && t < lot.Laid;
+        $('#cf_fl').hidden = !short; if (!short) $('#cf_f').checked = false;
+        $('#cf_s').innerHTML = 'Total cut after this entry <b>' + fmtNum(t) + '</b> of ' + fmtNum(lot.Laid) + ' laid' +
+          (!lot.LayClosed ? ' · layering is still going on' : t >= lot.Laid ? ' · cutting will close' : ' · ' + fmtNum(lot.Laid - t) + ' short');
+      }
+      calc(); $('#cf').oninput = calc;
       $('#cf').onsubmit = function (ev) {
         ev.preventDefault();
-        var pay = { lotId: lotId, date: $('#cf_d').value, qty: $('#cf_q').value, final: $('#cf_f').checked, remarks: $('#cf_r').value };
-        var send = function (ov) {
-          return api('cutSave', Object.assign({ confirmOver: ov }, pay))
-            .then(function () { closeModal(); toast('Cutting saved', 'ok'); return loadCut(); });
-        };
-        send(false).catch(function (e) {
-          if (e.code !== 'OVER') return fail(e);
-          confirmBox('More than laid', e.message.replace(' Confirm to continue.', '') + ' Save anyway?', 'Save anyway', true).then(function (ok) { if (ok) send(true).catch(fail); });
-        });
+        var pay = { lotId: lotId, date: $('#cf_d').value, qty: $('#cf_q').value, final: !$('#cf_fl').hidden && $('#cf_f').checked, remarks: $('#cf_r').value };
+        api('cutSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'Cutting saved – cutting closed' : 'Cutting saved', 'ok'); return loadCut(); }).catch(fail);
       };
     });
   }
