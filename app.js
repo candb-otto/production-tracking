@@ -51,7 +51,7 @@
     var body = { action: action, token: S.token, payload: withRange(action, payload) };
     return post_(body, READ.test(action) ? 3 : 0).then(function (r) {
       if (!quiet) loading(false);
-      if (r && r.ok) return r.data;
+      if (r && r.ok) { if (r.data && r.data._lm) S.lm = r.data._lm; return r.data; }
       var err = new Error((r && r.error) || 'Request failed');
       err.code = r && r.code;
       if (err.code === 'AUTH' && S.token) endSession('Your session has expired. Please sign in again.');
@@ -209,7 +209,8 @@
   }
 
   /* ---------- Revision D: search / date filter / CSV on transaction tables ---------- */
-  var TF_SKIP = { password: 1, reports: 1, alertset: 1, mgmt: 1 };   /* every other page gets search / filters / CSV on its tables */
+  var TF_SKIP = { password: 1, reports: 1, alertset: 1, mgmt: 1 };
+  var TXN_PAGES = { fabric: 1, lots: 1, conversion: 1, layering: 1, cutting: 1, sewout: 1, sewqc: 1, sewfinal: 1, washing: 1, washmove: 1, ironing: 1, ironqc: 1, stickering: 1, packsend: 1, packrecv: 1, ironlots: 1, jwinward: 1 };   /* every other page gets search / filters / CSV on its tables */
   function dIso(t) {
     var m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(t || ''); if (!m) return '';
     var i = MON.map(function (x) { return x.toLowerCase(); }).indexOf(m[2].toLowerCase()); if (i < 0) return '';
@@ -217,6 +218,29 @@
   }
   /* multi-select filter: a button that opens a list of tick boxes ("All units" / "Unit 1, Unit 2" / "3 units") */
   function msText(label, sel) { return !sel.length ? 'All ' + label.toLowerCase() : (sel.length <= 2 ? sel.join(', ') : sel.length + ' ' + label.toLowerCase() + ' selected'); }
+  /* a search box above a long <select>: typing narrows the options (all words must match); one match is picked at once */
+  function searchSelect(sel, ph) {
+    if (!sel || sel.getAttribute('data-ss')) return;
+    sel.setAttribute('data-ss', '1');
+    var all = Array.prototype.map.call(sel.options, function (o) { return { v: o.value, t: o.textContent, d: o.disabled }; });
+    var q = document.createElement('input'); q.type = 'search'; q.className = 'ss-q'; q.placeholder = ph || 'Type to search…'; q.setAttribute('autocomplete', 'off'); q.setAttribute('aria-label', ph || 'Search');
+    var n = document.createElement('div'); n.className = 'hint ss-n';
+    sel.parentNode.insertBefore(q, sel); sel.parentNode.insertBefore(n, sel.nextSibling);
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+    q.addEventListener('input', function () {
+      var words = q.value.toLowerCase().split(/\s+/).filter(Boolean), cur = sel.value, hit = [];
+      var keep = all.filter(function (o, i) {
+        if (i === 0 && o.v === '') return true;
+        var ok = !words.length || words.every(function (w) { return o.t.toLowerCase().indexOf(w) >= 0; });
+        if (ok) hit.push(o); return ok || o.v === cur;
+      });
+      sel.innerHTML = keep.map(function (o) { return '<option value="' + esc(o.v) + '"' + (o.d ? ' disabled' : '') + '>' + esc(o.t) + '</option>'; }).join('');
+      sel.value = cur;
+      n.textContent = words.length ? (hit.length ? hit.length + ' match' + (hit.length === 1 ? '' : 'es') : 'No match') : '';
+      if (words.length && hit.length === 1 && !hit[0].d && sel.value !== hit[0].v) { sel.value = hit[0].v; sel.dispatchEvent(new Event('change')); }
+    });
+    return q;
+  }
   function msHtml(k, label, vals, sel) {
     return '<div class="tf-s ms" data-k="' + k + '" data-l="' + esc(label) + '"><button type="button" class="ms-b" aria-haspopup="true" aria-label="' + esc(label) + '">' + esc(msText(label, sel)) + '</button>' +
       '<div class="ms-p" hidden><div class="ms-a"><button type="button" class="ms-all">Select all</button><button type="button" class="ms-none">Clear</button></div>' +
@@ -269,12 +293,32 @@
         var useen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = unitGet(tr); if (v) useen[v] = 1; });
         if (Object.keys(useen).length >= 1) fcols.push({ i: unitCol, label: 'Unit', vals: Object.keys(useen).sort(), get: unitGet });
       }
+      /* Season and Category filters on transaction pages: taken from the lot (or plan) of each row, so only the seasons and
+         categories that are on this page are offered */
+      if (TXN_PAGES[S.page] && S.lm) {
+        var lotCol = -1, planCol = -1;
+        ths.forEach(function (t, i) { if (lotCol < 0 && /^lot\b/i.test(t) && !/^lots\b/i.test(t)) lotCol = i; if (planCol < 0 && /^plan\b/i.test(t)) planCol = i; });
+        var first = function (c) { if (!c) return ''; var n = c.querySelector('b') || c.firstChild; return n ? n.textContent.replace(/\s+/g, ' ').trim().toLowerCase() : ''; };
+        var look = function (m, t) { return t ? (m[t] || m[t.split(/[\s·]+/)[0]] || null) : null; };
+        var lmOf = function (tr) {
+          if (tr._lmv !== undefined) return tr._lmv;
+          var v = lotCol >= 0 ? look(S.lm.l, first(tr.cells[lotCol])) : null;
+          if (!v && planCol >= 0) v = look(S.lm.p, first(tr.cells[planCol]));
+          if (!v) { var m = /PLN-\d+/i.exec(tr.textContent); if (m) v = S.lm.p[m[0].toLowerCase()] || null; }
+          return (tr._lmv = v);
+        };
+        [['Season', 0, /^season\b/i], ['Category', 1, /^categor/i]].forEach(function (d) {
+          if (ths.some(function (t) { return d[2].test(t) && !/unit/i.test(t); })) return;
+          var seen = {}; Array.prototype.forEach.call(body.rows, function (tr) { var v = lmOf(tr); if (v && v[d[1]]) seen[v[d[1]]] = 1; });
+          if (Object.keys(seen).length) fcols.push({ i: -1, label: d[0], vals: Object.keys(seen).sort(), get: function (tr) { var v = lmOf(tr); return v ? v[d[1]] : ''; } });
+        });
+      }
       ths.forEach(function (t, i) {
         if (i === unitCol || (unitAttr && /unit/i.test(t))) return;
         if (i === dcol || !/^(status|unit|season|section|category|stage|process|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 6) return;
         var seen = {}, n = 0, long = false;
         Array.prototype.forEach.call(body.rows, function (tr) { var v = cellTxt(tr, i); if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
-        if (!long && n >= 2 && n <= 25) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort(), get: (function (ci) { return function (tr) { return cellTxt(tr, ci); }; })(i) });
+        if (!long && (n >= 2 || (n === 1 && /^(season|categor)/i.test(t))) && n <= 40) fcols.push({ i: i, label: t, vals: Object.keys(seen).sort(), get: (function (ci) { return function (tr) { return cellTxt(tr, ci); }; })(i) });
       });
       var prev = tb.previousElementSibling, title = (prev && /^H3$/.test(prev.tagName) ? prev.textContent : 'table') + '#' + ti;
       S.tf = S.tf || {}; var st = S.tf[title] = S.tf[title] || { q: '' };
@@ -283,8 +327,6 @@
       bar.innerHTML = '<input type="search" class="tf-q" placeholder="Search…" value="' + esc(st.q) + '" aria-label="Search">' +
         fcols.map(function (f, k) { var cur = st['f' + k]; st['f' + k] = Array.isArray(cur) ? cur.filter(function (v) { return f.vals.indexOf(v) >= 0; }) : (cur ? [cur] : []); return msHtml(k, f.label, f.vals, st['f' + k]); }).join('') +
         (dcol >= 0 ? '<label class="tf-l">From <input type="date" class="tf-f" value="' + esc(R.from || '') + '"></label><label class="tf-l">To <input type="date" class="tf-t" value="' + esc(R.to || '') + '"></label><button class="btn sm ghost tf-c" type="button">Clear</button>' : '') +
-        '<select class="tf-o" aria-label="Sort"><option value="">Sort: newest ID first</option>' +
-        ths.map(function (t, i) { return t ? '<option value="' + i + ':a">' + esc(t) + ' (A → Z, low → high)</option><option value="' + i + ':d">' + esc(t) + ' (Z → A, high → low)</option>' : ''; }).join('') + '</select>' +
         '<span class="tf-n"></span><button class="btn sm ghost tf-x" type="button">Export CSV</button>';
       tb.parentNode.insertBefore(bar, tb);
       var qi = bar.querySelector('.tf-q'), nEl = bar.querySelector('.tf-n');
@@ -332,9 +374,9 @@
         if (bar.scrollIntoView) bar.scrollIntoView({ block: 'nearest' });
       });
       qi.addEventListener('input', function () { apply(); });
-      /* sorting: the server sends the newest transaction ID first; the user can sort by any column here or by clicking a heading */
+      /* sorting: the server sends the newest transaction ID first; clicking a column heading sorts by it
+         (1st click A → Z / low → high, 2nd click Z → A / high → low, 3rd click back to the original order) */
       Array.prototype.forEach.call(body.rows, function (tr, i) { tr._i0 = i; });
-      var so = bar.querySelector('.tf-o');
       function sortKey(tr, c) {
         var t = ((tr.cells[c] && tr.cells[c].textContent) || '').replace(/\s+/g, ' ').trim(), iso = dIso(t), n = Number(t.replace(/[,%\s]/g, ''));
         if (iso && /^\d{1,2}-[A-Za-z]{3}-\d{4}/.test(t)) return { k: iso + t.slice(11), t: 's' };
@@ -354,15 +396,17 @@
           });
         }
         rows.forEach(function (tr) { body.appendChild(tr); });
-        so.value = st.o; apply();
+        apply();
         Array.prototype.forEach.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (th, i) { th.classList.remove('s-a', 's-d'); if (m && Number(m[1]) === i) th.classList.add(m[2] === 'a' ? 's-a' : 's-d'); });
       }
-      so.addEventListener('change', function () { doSort(so.value); });
       Array.prototype.forEach.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (th, i) {
         if (!ths[i]) return;
-        th.classList.add('sortable'); th.title = 'Click to sort';
-        th.addEventListener('click', function () { var m = /^(\d+):([ad])$/.exec(st.o || ''); doSort(i + ':' + (m && Number(m[1]) === i && m[2] === 'a' ? 'd' : 'a')); });
+        th.classList.add('sortable'); th.title = 'Click to sort'; th.tabIndex = 0;
+        var click = function () { var m = /^(\d+):([ad])$/.exec(st.o || ''), same = m && Number(m[1]) === i; doSort(!same ? i + ':a' : (m[2] === 'a' ? i + ':d' : '')); };
+        th.addEventListener('click', click);
+        th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); click(); } });
       });
+      if (st.o) doSort(st.o);
       msWire(bar, function (k, vals) { st['f' + k] = vals; apply(); });
       if (dcol < 0) { var cb = document.createElement('button'); cb.className = 'btn sm ghost tf-c'; cb.type = 'button'; cb.textContent = 'Clear'; bar.insertBefore(cb, bar.querySelector('.tf-n')); cb.addEventListener('click', function () { qi.value = ''; st.q = ''; msClear(bar, function (k) { st['f' + k] = []; }); apply(); }); }
       if (dcol >= 0) {
@@ -1579,8 +1623,9 @@
     var seasonLabel = p ? p.Season : '';
     var curOrder = p ? p.Order_ID : (pre.orderId || '');
     var needReason = false, lastFit = null, timer = null, curIO = p ? p.Plan_Type === 'IRON_ONLY' : false;
+    var seEdit = isNew || !!(p && p.canMoveSeason);   /* the season of a plan can be changed until fabric is issued */
     openModal('<h3>' + (isNew ? 'Add plan' : 'Edit plan ' + esc(p.Plan_ID)) + '</h3><form id="pf">' +
-      '<label for="pf_se">Season</label>' + (isNew ? sel('pf_se', refs.Season_ID, curSeason, 'Select…') : '<div class="ro">' + esc(seasonLabel) + '</div>') +
+      '<label for="pf_se">Season</label>' + (seEdit ? sel('pf_se', refs.Season_ID, curSeason, 'Select…') + (isNew ? '' : '<div class="hint">The season can be changed until fabric is issued against this plan.</div>') : '<div class="ro">' + esc(seasonLabel) + '</div><div class="hint">Fabric is issued against this plan, so the season cannot change.</div>') +
       (isNew ? '<label for="pf_t">Plan type</label><select id="pf_t"><option value="">Normal (fabric to packing)</option><option value="IRON_ONLY">Ironing-only (job worker / warehouse re-ironing)</option></select><div class="hint" id="pf_th" hidden>Lots of this plan are added in <b>Ironing-only Lots</b> and only go through ironing, stickering and packing.</div>' : (curIO ? '<div class="hint"><span class="badge">Ironing only</span> The plan type cannot be changed.</div>' : '')) +
       '<div id="pf_g1"><label for="pf_o">Season order (optional)</label><select id="pf_o"></select></div>' +
       '<label for="pf_c">Category</label>' + sel('pf_c', refs.Category_ID, p ? p.Category_ID : (pre.categoryId || ''), 'Select…') +
@@ -1600,7 +1645,7 @@
       '<div class="row"><button type="button" class="btn ghost" id="pf_x">Cancel</button><button class="btn" type="submit">Confirm plan</button></div></form>',
       function () {
         function fillOrders() {
-          var se = isNew ? $('#pf_se').value : p.Season_ID, cat = $('#pf_c').value, cur = $('#pf_o').value || curOrder;
+          var se = seEdit ? $('#pf_se').value : p.Season_ID, cat = $('#pf_c').value, cur = $('#pf_o').value || curOrder;
           var list = orders.filter(function (o) { return o.seasonId === se && (!cat || o.categoryId === cat); });
           $('#pf_o').innerHTML = '<option value="">No order (direct plan)</option>' + list.map(function (o) {
             return '<option value="' + esc(o.id) + '"' + (cur === o.id ? ' selected' : '') + '>' + esc(o.label + ' · planned ' + o.planned + ' · to plan ' + o.balance) + '</option>'; }).join('');
@@ -1638,7 +1683,7 @@
         check.n = 0;
         function later() { clearTimeout(timer); timer = setTimeout(check, 400); }
         function defCut() {
-          var o = orders.filter(function (x) { return x.id === $('#pf_o').value; })[0], se = isNew ? $('#pf_se').value : p.Season_ID;
+          var o = orders.filter(function (x) { return x.id === $('#pf_o').value; })[0], se = seEdit ? $('#pf_se').value : p.Season_ID;
           var sc = refs.Season_ID.filter(function (x) { return x.id === se; })[0];
           var v = (o && o.cutoff) || (sc && sc.cutoff) || '';
           if (v && !$('#pf_d').value) $('#pf_d').value = v;
@@ -1649,7 +1694,7 @@
         if (isNew) $('#pf_t').onchange = function () { applyType(); if (!isIO()) later(); };
         if (pre.categoryId || p) later();
         $('#pf_x').onclick = closeModal;
-        if (isNew) $('#pf_se').onchange = function () { $('#pf_o').value = ''; curOrder = ''; fillOrders(); defCut(); later(); };
+        if (seEdit) $('#pf_se').onchange = function () { $('#pf_o').value = ''; curOrder = ''; fillOrders(); defCut(); later(); };
         $('#pf_c').onchange = function () { $('#pf_o').value = ''; curOrder = ''; fillOrders(); later(); };
         $('#pf_o').onchange = function () {
           var o = orders.filter(function (x) { return x.id === $('#pf_o').value; })[0];
@@ -1663,7 +1708,8 @@
           ev.preventDefault();
           var f = { Category_ID: $('#pf_c').value, Unit_ID: $('#pf_u').value, Plan_Qty: $('#pf_q').value, Cutoff_Date: $('#pf_d').value, Fabric_Cutoff_Date: $('#pf_fc').value, Cutting_Cutoff_Date: $('#pf_cc').value, IronPack_Cutoff_Date: $('#pf_ic').value, Iron_Cutoff_Date: $('#pf_irc') ? $('#pf_irc').value : '', Remarks: $('#pf_r').value, Order_ID: $('#pf_o').value };
           if ($('#pf_sub')) f.Sub_Type = $('#pf_sub').value;
-          if (isNew) { f.Season_ID = $('#pf_se').value; f.Plan_Type = $('#pf_t').value; }
+          if (seEdit) f.Season_ID = $('#pf_se').value;
+          if (isNew) f.Plan_Type = $('#pf_t').value;
           if (isIO()) { f.Cutoff_Date = ''; f.Fabric_Cutoff_Date = ''; f.Cutting_Cutoff_Date = ''; f.Order_ID = ''; }
           if (!isIO() && isJW()) f.Cutting_Cutoff_Date = '';
           function send() {
@@ -1989,7 +2035,7 @@
   }
   function paintFabric() {
     var r = S.fab;
-    $('#fh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Each issue creates one original lot. You can edit or cancel an issue until the lot is used in production. Use the search, unit filter and sort above the table; 10 issues are shown per page.</div>' +
+    $('#fh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Each issue creates one original lot. You can edit an issue (including its plan, if the wrong plan was picked) or cancel it until the lot is used in production. Click a column heading to sort.</div>' +
       (r.canWrite ? '<button class="btn" id="fadd">+ Issue fabric</button>' : '') + '</div>';
     if (r.canWrite) $('#fadd').onclick = function () { fabricForm(null); };
     paintFabricRows();
@@ -2006,7 +2052,7 @@
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Sub type">' + (x.Sub_Type ? esc(x.Sub_Type) : '-') + '</td>' +
           '<td data-l="Fabric">' + esc(x.Fabric_Type) + (x.Fabric_Width ? '<div class="cellsub">' + esc(x.Fabric_Width) + '</div>' : '') + '</td>' +
-          '<td data-l="Qty (pcs)">' + fmtNum(x.Issue_Qty) + '<div class="cellsub">Order ' + fmtNum(x.Order_Qty) + (x.Extra_Qty ? ' · Extra ' + fmtNum(x.Extra_Qty) : '') + '</div></td><td data-l="Date">' + esc(dfmt(x.Issue_Date)) + '</td>' +
+          '<td data-l="Qty (pcs)">' + fmtNum(x.Issue_Qty) + '<div class="cellsub">Order ' + fmtNum(x.Order_Qty) + (x.Extra_Qty ? ' · Extra ' + fmtNum(x.Extra_Qty) : '') + (x.Adj_Qty ? ' · <span style="color:var(--bad)">Adjusted −' + fmtNum(x.Adj_Qty) + '</span>' : '') + '</div></td><td data-l="Date">' + esc(dfmt(x.Issue_Date)) + '</td>' +
           '<td data-l="Flags">' + (x.JobWork ? '<span class="badge">Job work</span>' + (x.Inhouse_Finish ? ' <span class="badge">In-house finish</span>' : '') : (x.Washing_Required ? '<span class="badge">Wash</span>' : '-')) + '</td>' +
           '<td data-l="Status"><span class="badge ' + (live ? 'ok' : 'off') + '">' + (live ? (x.Locked ? 'In production' : 'Issued') : 'Cancelled') + '</span></td>' +
           (anyAct ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-a="edit" data-id="' + esc(x._id) + '">Edit</button>' : '') +
@@ -2026,9 +2072,11 @@
     var isNew = !x, plans = S.fab.plans || [];
     if (isNew && !plans.length) { toast('No active plan available. Create a plan first.', 'bad'); return; }
     var today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    var planHtml = isNew ? '<label for="ff_p">Plan</label><select id="ff_p"><option value="">Select…</option>' + plans.map(function (p) {
-      return '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>'; }).join('') + '</select><div class="hint" id="ff_ph"></div>'
-      : '<label>Plan</label><div class="ro">' + esc(x.Plan_ID + ' · ' + x.Season + ' · ' + x.Category + ' · ' + x.Unit) + '</div>';
+    /* on edit the plan can be changed (wrong plan picked) – only to a plan of the same kind (job work / normal) */
+    var plist = isNew ? plans : plans.filter(function (p) { return !!p.jobWork === !!x.JobWork; });
+    if (!isNew && !plist.some(function (p) { return p.id === x.Plan_ID; })) plist = [{ id: x.Plan_ID, label: x.Plan_ID + ' · ' + x.Season + ' · ' + x.Category + ' · ' + x.Unit, jobWork: x.JobWork }].concat(plist);
+    var planHtml = '<label for="ff_p">Plan</label><select id="ff_p"><option value="">Select…</option>' + plist.map(function (p) {
+      return '<option value="' + esc(p.id) + '"' + (!isNew && p.id === x.Plan_ID ? ' selected' : '') + '>' + esc(p.label) + '</option>'; }).join('') + '</select><div class="hint" id="ff_ph"></div>';
     openModal('<h3>' + (isNew ? 'Issue fabric' : 'Edit issue ' + esc(x.Fabric_Issue_ID)) + '</h3><form id="ff">' + planHtml +
       '<label for="ff_l">ERP lot number</label><input id="ff_l" maxlength="30" autocomplete="off" placeholder="Lot number from ERP" value="' + esc(x ? x.Lot_No : '') + '">' +
       '<label for="ff_d">Issue date</label><input id="ff_d" type="date" max="' + today + '" value="' + esc(x ? x.Issue_Date : today) + '">' +
@@ -2053,21 +2101,22 @@
         };
         $('#ff_q').oninput = split; $('#ff_e').oninput = split; split();
         function applyJw() {
-          var pp = isNew ? plans.filter(function (z) { return z.id === $('#ff_p').value; })[0] : null, jw = isNew ? !!(pp && pp.jobWork) : !!x.JobWork;
+          var pp = plist.filter(function (z) { return z.id === $('#ff_p').value; })[0], jw = isNew ? !!(pp && pp.jobWork) : !!x.JobWork;
           $('#ff_wrl').hidden = jw; $('#ff_ihl').hidden = !jw; $('#ff_jh').hidden = !jw;
         }
         applyJw();
-        if (isNew) $('#ff_p').onchange = function () {
+        $('#ff_p').onchange = function () {
           applyJw();
-          var p = plans.filter(function (z) { return z.id === $('#ff_p').value; })[0];
-          $('#ff_ph').textContent = p ? 'Plan ' + fmtNum(p.qty) + ' · issued ' + fmtNum(p.issued) + (p.balance < 0 ? ' · over by ' + fmtNum(-p.balance) : ' · balance ' + fmtNum(p.balance)) + ' pcs' : '';
+          var p = plist.filter(function (z) { return z.id === $('#ff_p').value; })[0];
+          $('#ff_ph').textContent = p && p.qty != null ? 'Plan ' + fmtNum(p.qty) + ' · issued ' + fmtNum(p.issued) + (p.balance < 0 ? ' · over by ' + fmtNum(-p.balance) : ' · balance ' + fmtNum(p.balance)) + ' pcs' + (!isNew && p.id !== x.Plan_ID ? ' · the lot moves to this plan' : '') : '';
         };
+        searchSelect($('#ff_p'), 'Search plan, season, category or unit…');
         $('#ff').onsubmit = function (ev) {
           ev.preventDefault();
           if (!$('#ff_l').value.trim()) { $('#ff_l').focus(); return toast('ERP lot number is required', 'bad'); }
           var f = { Issue_Date: $('#ff_d').value, Fabric_Type: $('#ff_t').value, Fabric_Width: $('#ff_w').value, Issue_Qty: $('#ff_q').value, Extra_Qty: $('#ff_e').value,
             Lot_No: $('#ff_l').value, Washing_Required: $('#ff_wr').checked, Inhouse_Finish: $('#ff_ih').checked, Remarks: $('#ff_r').value };
-          if (isNew) f.Plan_ID = $('#ff_p').value;
+          f.Plan_ID = $('#ff_p').value;
           var send = function (over) {
             return api('fabricSave', { id: x ? x._id : '', fields: f, confirmOver: over }).then(function (res) {
               closeModal(); toast(isNew ? 'Issued – lot ' + res.Lot_No + ' created' : 'Saved', 'ok'); return loadFabric();
@@ -3115,13 +3164,13 @@
   function loadLay() { return api('layList').then(function (r) { S.lay = r; paintLay(); }).catch(fail); }
   function paintLay() {
     var r = S.lay, w = r.canWrite, h = '';
-    $('#vh').innerHTML = '<div class="mhelp">Start a lay on a free table, then complete it with the pieces laid. When the last lay of a lot is done, tick <b>last lay</b> – the lot then moves to cutting.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Start a lay on a free table, then complete it with the pieces laid. When the last lay of a lot is done, tick <b>last lay</b> – the lot then moves to cutting. Use <b>Adjust / Cancel</b> when part of the lot will not be laid (e.g. damaged fabric returned to the warehouse): the lot qty and the fabric issued against the plan go down.</div>';
     h += '<h3 class="sec">Waiting for layering</h3>' + (r.notStarted.lots ? '<div class="hint" style="margin-bottom:8px"><b>' + r.notStarted.lots + '</b> lot(s) / <b>' + fmtNum(r.notStarted.pcs) + '</b> pcs are lying as fabric, layering not started.</div>' : '');
     h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Width</th><th>Status</th><th>Balance</th><th>Laid</th><th>To lay</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
         return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
-          '<td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Status">' + (x.Started ? '<span class="badge">Layering started</span>' : '<span class="badge warn">Not started</span><div class="cellsub">Fabric in unit ' + (x.WaitDays == null ? '' : x.WaitDays + ' day(s)') + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>') + '</td><td data-l="Balance">' + fmtNum(x.Balance) + '</td><td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="To lay"><b>' + fmtNum(x.PendingLay) + '</b></td>' +
-          (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button></div></td>' : '') + '</tr>';
+          '<td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Status">' + (x.Started ? '<span class="badge">Layering started</span>' : '<span class="badge warn">Not started</span><div class="cellsub">Fabric in unit ' + (x.WaitDays == null ? '' : x.WaitDays + ' day(s)') + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>') + '</td><td data-l="Balance">' + fmtNum(x.Balance) + (x.Adj || x.Moved_Out ? '<div class="cellsub">Lot ' + fmtNum(x.Lot_Qty) + (x.Moved_Out ? ' · moved ' + fmtNum(x.Moved_Out) : '') + (x.Adj ? ' · <span style="color:var(--bad)">adjusted −' + fmtNum(x.Adj) + '</span>' : '') + '</div>' : '') + '</td><td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="To lay"><b>' + fmtNum(x.PendingLay) + '</b></td>' +
+          (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button><button class="btn sm ghost" data-adj="' + esc(x.Lot_ID) + '" title="Reduce the lot qty (fabric returned, damage) or cancel the lot">Adjust / Cancel</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot is waiting for layering.</div>';
     h += '<h3 class="sec">Lays in progress</h3>';
     h += r.active.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Category</th><th>Table</th><th>Started</th><th>Running for</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
@@ -3142,6 +3191,7 @@
       var t = e.target, a = t.getAttribute && t.getAttribute.bind(t);
       if (!a) return;
       if (a('data-start')) return startLayForm(a('data-start'));
+      if (a('data-adj')) { var lx = S.lay.pending.filter(function (z) { return z.Lot_ID === a('data-adj'); })[0]; if (lx) adjForm({ Lot_ID: lx.Lot_ID, Lot_No: lx.Lot_No, Lot_Qty: lx.Lot_Qty, Moved_Out: lx.Moved_Out, Adj: lx.Adj, Adj_Reason: lx.Adj_Reason, Laid: lx.Laid }, loadLay); return; }
       if (a('data-done')) return doneLayForm(a('data-done'));
       if (a('data-xl')) {
         var id = a('data-xl');
@@ -3150,6 +3200,33 @@
         });
       }
     };
+  }
+  /* lot qty adjustment / cancel: x = {Lot_ID, Lot_No, Lot_Qty, Moved_Out, Adj, Adj_Reason, Laid} */
+  function adjForm(x, after) {
+    var gross = (x.Lot_Qty || 0) - (x.Moved_Out || 0), max = Math.max(0, gross - (x.Laid || 0));
+    openModal('<h3>Adjust / cancel – ' + esc(x.Lot_No) + '</h3><div class="hint">Lot qty ' + fmtNum(x.Lot_Qty) + (x.Moved_Out ? ' · moved to other lots ' + fmtNum(x.Moved_Out) : '') + ' · laid ' + fmtNum(x.Laid || 0) + (x.Adj ? ' · adjusted so far ' + fmtNum(x.Adj) : '') + '</div>' +
+      '<form id="ja"><label for="ja_q">Total qty adjusted / cancelled for this lot (pcs)</label><input id="ja_q" type="number" min="0" max="' + max + '" step="1" inputmode="numeric" value="' + (x.Adj || '') + '">' +
+      '<div class="hint" id="ja_s"></div>' +
+      '<label for="ja_r">Reason</label><input id="ja_r" maxlength="200" autocomplete="off" placeholder="e.g. fabric damage – returned to fabric warehouse" value="' + esc(x.Adj_Reason || '') + '">' +
+      '<div class="hint">Only the pieces not yet laid can be adjusted (up to ' + fmtNum(max) + '). The adjusted pieces also come off the fabric issued against the plan. Enter 0 to undo.</div>' +
+      '<div class="row"><button type="button" class="btn ghost" id="ja_x">Back</button><button class="btn" type="submit">Save</button></div></form>', function () {
+      function calc() {
+        var q = Number($('#ja_q').value) || 0, net = gross - q;
+        $('#ja_s').innerHTML = q > max ? '<span style="color:var(--bad)">More than the ' + fmtNum(max) + ' pcs not yet laid</span>' :
+          'Net lot qty <b>' + fmtNum(net) + '</b>' + (net === 0 ? ' · <b style="color:var(--bad)">the lot will be cancelled</b>' : (x.Laid && net <= x.Laid ? ' · layering will close (all laid)' : ' · still to lay ' + fmtNum(net - (x.Laid || 0))));
+      }
+      calc(); $('#ja_q').oninput = calc; $('#ja_x').onclick = closeModal;
+      $('#ja').onsubmit = function (ev) {
+        ev.preventDefault();
+        var q = Number($('#ja_q').value) || 0, go2 = function () {
+          api('lotAdjust', { lotId: x.Lot_ID, qty: String(q), reason: $('#ja_r').value }).then(function (r) {
+            closeModal(); toast(r.cancelled ? 'Lot ' + x.Lot_No + ' cancelled' : 'Lot ' + x.Lot_No + ': net qty ' + fmtNum(r.Net) + (r.closed ? ' – layering closed' : ''), 'ok'); return after();
+          }).catch(fail);
+        };
+        if (gross - q === 0) confirmBox('Cancel lot ' + x.Lot_No + '?', 'All ' + fmtNum(gross) + ' pcs are adjusted, so the lot will be cancelled. You can undo this from the Lots page.', 'Cancel lot', true).then(function (ok) { if (ok) go2(); });
+        else go2();
+      };
+    });
   }
   function startLayForm(lotId) {
     var r = S.lay, lot = r.pending.filter(function (x) { return x.Lot_ID === lotId; })[0]; if (!lot) return;
@@ -3259,21 +3336,28 @@
   }
   function paintLotRows() {
     var q = (S.lq || '').toLowerCase(), st = S.ls || '';
+    var canAdj = pageEdit('layering');
     var rows = S.lots.filter(function (x) {
       return (!st || x.Lot_Status === st) && (!q || [x.Lot_No, x.Lot_ID, x.Plan_ID, x.Category, x.Unit, x.Season].join(' ').toLowerCase().indexOf(q) >= 0);
     });
     if (!rows.length) { $('#lb').innerHTML = '<div class="card empty">' + (S.lots.length ? 'No match.' : 'No lots yet.') + '</div>'; return; }
-    $('#lb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Type</th><th>Width</th><th>Lot qty</th><th>Moved out</th><th>Balance</th><th>Stage</th><th>Days in stage</th><th>Status</th></tr></thead><tbody>' +
+    $('#lb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Type</th><th>Width</th><th>Lot qty</th><th>Moved out</th><th>Adjusted</th><th>Balance</th><th>Stage</th><th>Days in stage</th><th>Status</th>' + (canAdj ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Lot_Status === 'ACTIVE';
         return '<tr' + (x.Lot_Status === 'CANCELLED' ? ' style="opacity:.6"' : '') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Origin ? ' · from ' + esc(x.Origin) : '') + '</div></td>' +
           '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
           '<td data-l="Category / Unit">' + esc(x.Category) + (x.Sub_Type ? ' <span class="badge">' + esc(x.Sub_Type) + '</span>' : '') + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
-          '<td data-l="Type">' + esc(x.Lot_Type === 'JOB_WORK' ? 'Job work' : x.Lot_Type === 'IRON_ONLY' ? 'Ironing only' : x.Lot_Type.charAt(0) + x.Lot_Type.slice(1).toLowerCase()) + (x.Lot_Source ? '<div class="cellsub">' + esc(srcName(x.Lot_Source)) + '</div>' : '') + '</td><td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td><td data-l="Moved out">' + (x.Moved_Out ? fmtNum(x.Moved_Out) : '-') + '</td><td data-l="Balance"><b>' + fmtNum(x.Balance) + '</b></td>' +
+          '<td data-l="Type">' + esc(x.Lot_Type === 'JOB_WORK' ? 'Job work' : x.Lot_Type === 'IRON_ONLY' ? 'Ironing only' : x.Lot_Type.charAt(0) + x.Lot_Type.slice(1).toLowerCase()) + (x.Lot_Source ? '<div class="cellsub">' + esc(srcName(x.Lot_Source)) + '</div>' : '') + '</td><td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td><td data-l="Moved out">' + (x.Moved_Out ? fmtNum(x.Moved_Out) : '-') + '</td><td data-l="Adjusted">' + (x.Adj_Qty ? '<span style="color:var(--bad)">' + fmtNum(x.Adj_Qty) + '</span>' + (x.Adj_Reason ? '<div class="cellsub">' + esc(x.Adj_Reason) + '</div>' : '') : '-') + '</td><td data-l="Balance"><b>' + fmtNum(x.Balance) + '</b></td>' +
           '<td data-l="Stage">' + (live ? esc(STAGE[x.Current_Stage] || x.Current_Stage) + (x.Current_Stage === 'LAYERING' && !x.Started ? '<div class="cellsub">Not started</div>' : '') : '-') + '</td>' +
           '<td data-l="Days in stage">' + (x.DaysInStage == null ? '-' : x.DaysInStage) + '</td>' +
-          '<td data-l="Status"><span class="badge ' + (live ? 'ok' : (x.Lot_Status === 'CANCELLED' ? 'off' : '')) + '">' + esc(x.Lot_Status.charAt(0) + x.Lot_Status.slice(1).toLowerCase()) + '</span></td></tr>';
+          '<td data-l="Status"><span class="badge ' + (live ? 'ok' : (x.Lot_Status === 'CANCELLED' ? 'off' : '')) + '">' + esc(x.Lot_Status.charAt(0) + x.Lot_Status.slice(1).toLowerCase()) + '</span></td>' +
+          (canAdj ? '<td class="acts-td"><div class="acts">' + (x.Adj_Qty && (live || x.Lot_Status === 'CANCELLED') ? '<button class="btn sm ghost" data-ladj="' + esc(x.Lot_ID) + '" title="Change or undo the qty adjustment">Adjust</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>';
+    $('#lb').onclick = function (e) {
+      var id = e.target.getAttribute && e.target.getAttribute('data-ladj'); if (!id) return;
+      var x = S.lots.filter(function (z) { return z.Lot_ID === id; })[0]; if (!x) return;
+      adjForm({ Lot_ID: x.Lot_ID, Lot_No: x.Lot_No, Lot_Qty: x.Lot_Qty, Moved_Out: x.Moved_Out, Adj: x.Adj_Qty, Adj_Reason: x.Adj_Reason, Laid: x.Laid }, function () { return api('lotList').then(function (r) { S.lots = r.rows; paintLotRows(); }); });
+    };
   }
 
   /* ---------- lot split / club (cutting) ---------- */
@@ -3335,6 +3419,7 @@
         }
         $('#sp_rows').innerHTML = row(); names(); sum();
         $('#sp_l').onchange = function () { var v = this.value; src = lots.filter(function (l) { return l.id === v; })[0] || null; names(); sum(); };
+        searchSelect($('#sp_l'), 'Search lot no, plan, category…');
         $('#sp_add').onclick = function () { if (document.querySelectorAll('#sp_rows .cv-row').length >= 10) return; $('#sp_rows').insertAdjacentHTML('beforeend', row()); names(); };
         $('#sp_rows').oninput = sum;
         $('#sp_rows').onclick = function (e) { if (e.target.classList.contains('sp-rm') && document.querySelectorAll('#sp_rows .cv-row').length > 1) { e.target.parentNode.remove(); names(); sum(); } };
@@ -3354,9 +3439,9 @@
   function clubForm() {
     var lots = S.conv.lots || [];
     if (lots.length < 2) { toast('Need at least two lots with pieces left to club.', 'bad'); return; }
-    openModal('<h3>Club lots</h3><form id="cl"><label>Lots to club (same plan, same washing) and pieces to take from each</label><div id="cl_list" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">' +
+    openModal('<h3>Club lots</h3><form id="cl"><label>Lots to club (same plan, same washing) and pieces to take from each</label><input type="search" id="cl_q" class="ss-q" placeholder="Search lot no, plan, category…" autocomplete="off" aria-label="Search lots"><div class="hint ss-n" id="cl_qn"></div><div id="cl_list" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">' +
       lots.map(function (l, i) {
-        return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub">' + esc(l.Plan_ID) + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
+        return '<div class="cl-row" style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub">' + esc(l.Plan_ID) + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
           '<input class="cl-q" data-i="' + i + '" type="number" min="1" max="' + l.qty + '" step="1" inputmode="numeric" value="' + l.qty + '" style="width:90px;height:38px" disabled></div>';
       }).join('') + '</div>' +
       '<div class="hint" id="cl_sum" style="margin-top:8px">Select two or more lots.</div>' +
@@ -3382,6 +3467,16 @@
           if (ws.length === 1 && !$('#cl_w').getAttribute('data-touched')) $('#cl_w').value = ws[0];
         }
         $('#cl_w').oninput = function () { this.setAttribute('data-touched', '1'); };
+        /* search: narrows the list; ticked lots always stay visible */
+        $('#cl_q').onkeydown = function (e) { if (e.key === 'Enter') e.preventDefault(); };
+        $('#cl_q').oninput = function () {
+          var words = this.value.toLowerCase().split(/\s+/).filter(Boolean), n = 0;
+          Array.prototype.forEach.call(document.querySelectorAll('#cl_list .cl-row'), function (r) {
+            var on = r.querySelector('.cl-c').checked, ok = !words.length || words.every(function (w) { return r.textContent.toLowerCase().indexOf(w) >= 0; });
+            r.style.display = ok || on ? '' : 'none'; if (ok) n++;
+          });
+          $('#cl_qn').textContent = words.length ? (n ? n + ' match' + (n === 1 ? '' : 'es') + ' (ticked lots stay in the list)' : 'No match') : '';
+        };
         $('#cl_list').onchange = refresh; $('#cl_list').oninput = refresh;
         $('#cl_x').onclick = closeModal;
         $('#cl').onsubmit = function (ev) {
