@@ -54,7 +54,7 @@
       if (r && r.ok) { if (r.data && r.data._lm) S.lm = r.data._lm; return r.data; }
       var err = new Error((r && r.error) || 'Request failed');
       err.code = r && r.code;
-      if (err.code === 'AUTH' && S.token) endSession('Your session has expired. Please sign in again.');
+      if (err.code === 'AUTH' && S.token) endSession(err.message || 'Your session has expired. Please sign in again.');
       throw err;
     }, function () { if (!quiet) loading(false); throw new Error('Cannot reach the server. Check your internet and try again.'); });
   }
@@ -315,6 +315,7 @@
       }
       ths.forEach(function (t, i) {
         if (i === unitCol || (unitAttr && /unit/i.test(t))) return;
+        if (/^(to|from)\s/i.test(t)) return;
         if (i === dcol || !/^(status|unit|season|section|category|stage|process|dept|department|type|role|active|buyer|shift|action|entity|module|from|to|style|brand|line)\b/i.test(t) || fcols.length >= 6) return;
         var seen = {}, n = 0, long = false;
         Array.prototype.forEach.call(body.rows, function (tr) { var v = cellTxt(tr, i); if (v.length > 40) long = true; if (v && !seen[v]) { seen[v] = 1; n++; } });
@@ -729,7 +730,8 @@
     var t = e.target; if (t && t.getAttribute && t.getAttribute('data-corr')) { e.preventDefault(); corrForm(t.getAttribute('data-corr')); }
   });
   function viewDashboard(el) {
-    S.df = S.df || { date: '', unitId: '' };
+    var t0 = todayStr();
+    S.df = S.df || { from: t0, to: t0, unitIds: [] };
     var u = S.user;
     el.innerHTML = '<div class="page-h"><h2>Welcome, ' + esc(u.name) + '</h2></div>' +
       '<div class="grid"><div class="card kv">Role<b>' + esc(u.sa ? 'Super Admin' : (ROLE[u.role] || u.role)) + '</b></div>' +
@@ -741,26 +743,27 @@
     $('#dh').innerHTML = '<div class="card empty">Loading…</div>';
     return api('dashHome', S.df).then(function (r) { S.dr = r; paintDash(); }).catch(fail);
   }
+  function kpiRow(b) {
+    return '<div class="jr dk">' + b.kpi.map(function (k) {
+      var cls = (k.kind === 'late' || k.kind === 'alert') && k.v ? 'bad' : (k.kind === 'wip' ? 'IN_PROGRESS' : '');
+      return '<div class="jc ' + cls + '"><h4>' + esc(k.l) + '</h4><div style="font-size:26px;font-weight:700">' + fmtNum(k.v) + '</div><div class="sub">' + esc(k.sub) + '</div></div>';
+    }).join('') + '</div>';
+  }
   function paintDash() {
-    var r = S.dr, f = S.df, k = r.kpi, h = '';
-    h += '<form class="fbar" id="df" style="margin-top:14px"><label for="df_d" class="inl">Date</label><input type="date" id="df_d" value="' + esc(r.date) + '" max="' + esc(r.today) + '">' +
-      (r.unitsList.length > 1 ? '<select id="df_u"><option value="">All units</option>' + r.unitsList.map(function (x) { return '<option value="' + esc(x.id) + '"' + (f.unitId === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' : '') +
+    var r = S.dr, f = S.df, h = '', range = r.from === r.to ? dfmt(r.to) : dfmt(r.from) + ' – ' + dfmt(r.to);
+    var uName = {}, uId = {}; r.unitsList.forEach(function (x) { uName[x.id.toLowerCase()] = x.name; uId[x.name] = x.id; });
+    var selNames = (r.unitIds || []).map(function (id) { return uName[id.toLowerCase()]; }).filter(Boolean);
+    h += '<form class="fbar" id="df" style="margin-top:14px"><label for="df_f" class="inl">From</label><input type="date" id="df_f" value="' + esc(r.from) + '" max="' + esc(r.today) + '">' +
+      '<label for="df_t" class="inl">To</label><input type="date" id="df_t" value="' + esc(r.to) + '" max="' + esc(r.today) + '">' +
+      (r.unitsList.length > 1 ? msHtml('u', 'Unit', r.unitsList.map(function (x) { return x.name; }), selNames) : '') +
       '<button class="btn" type="submit">Show</button></form>';
-    h += '<div class="jr">' +
-      '<div class="jc ' + (k.Late ? 'bad' : '') + '"><h4>Late plans</h4><div style="font-size:26px;font-weight:700">' + k.Late + '</div><div class="sub">' + k.AtRisk + ' at risk · ' + k.OnTrack + ' on track · ' + k.Done + ' done</div></div>' +
-      '<div class="jc IN_PROGRESS"><h4>Total WIP</h4><div style="font-size:26px;font-weight:700">' + fmtNum(k.Wip) + '</div><div class="sub">pieces in ' + k.WipLots + ' active lot(s)</div></div>' +
-      '<div class="jc"><h4>Sewing output</h4><div style="font-size:26px;font-weight:700">' + fmtNum(k.SewingOut) + '</div><div class="sub">on ' + esc(dfmt(r.date)) + '</div></div>' +
-      '<div class="jc"><h4>Packing received</h4><div style="font-size:26px;font-weight:700">' + fmtNum(k.PackOut) + '</div><div class="sub">on ' + esc(dfmt(r.date)) + '</div></div>' +
-      '<div class="jc ' + (k.Alerts ? 'bad' : '') + '"><h4>Alerts</h4><div style="font-size:26px;font-weight:700">' + k.Alerts + '</div><div class="sub">see list below</div></div></div>';
-
-    h += '<h3 class="sec">Alerts' + (r.alertsTotal > r.alerts.length ? ' (top ' + r.alerts.length + ' of ' + r.alertsTotal + ')' : '') + '</h3>';
-    h += r.alerts.length ? '<table><thead><tr><th>Level</th><th>Alert</th><th>Details</th><th></th></tr></thead><tbody>' + r.alerts.map(function (a, i) {
-      var sv = DASH_SEV[a.Sev] || ['', ''];
-      return '<tr><td data-l="Level"><span class="badge ' + sv[1] + '">' + esc(sv[0]) + '</span></td><td data-l="Alert"><b>' + esc(a.Title) + '</b></td><td data-l="Details">' + esc(a.Text) + '</td>' +
-        '<td class="acts-td"><div class="acts"><button class="btn sm ghost" type="button" data-go="' + esc(DASH_GO[a.Type] || 'dashboard') + '">Open</button></div></td></tr>';
-    }).join('') + '</tbody></table>' : '<div class="card empty">No alerts. Everything is on track.</div>';
-
-    h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 class="sec">Daily production – ' + esc(dfmt(r.date)) + '</h3><button class="btn sm ghost" type="button" id="dcsv1">Download CSV</button></div>';
+    /* KPIs: managers get the overall block (department blocks folded below it); department users get their own departments */
+    if (r.overview) h += '<h3 class="sec">Overview – ' + esc(range) + '</h3>' + kpiRow(r.overview);
+    var depHtml = r.blocks.map(function (b) { return '<h3 class="sec">' + esc(b.title) + '</h3>' + kpiRow(b); }).join('');
+    if (r.overview && r.blocks.length) h += '<details class="dk-more" id="dkm"' + (S.dkOpen ? ' open' : '') + '><summary>Department KPIs</summary>' + depHtml + '</details>';
+    else if (r.blocks.length) h += depHtml;
+    h += '<div class="hint" style="margin-top:6px">Quantities are for the selected dates; WIP is the WIP now.</div>';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 class="sec">Daily production – ' + esc(range) + '</h3><button class="btn sm ghost" type="button" id="dcsv1">Download CSV</button></div>';
     h += r.daily.length ? '<table><thead><tr><th>Unit</th>' + r.procs.map(function (p) { return '<th>' + esc(STAGE[p] || p) + '</th>'; }).join('') + '<th>Present</th><th>Absent</th><th>Sewing eff.</th></tr></thead><tbody>' +
       r.daily.map(function (d) {
         var c = d.Eff == null ? '' : (d.EffAlert ? 'bad' : (d.Eff >= 85 ? '' : 'warn'));
@@ -777,11 +780,27 @@
           '<td data-l="Late / at risk">' + (s.Late ? '<span class="badge off">' + s.Late + ' late</span> ' : '') + (s.AtRisk ? '<span class="badge warn">' + s.AtRisk + ' at risk</span>' : '') + (!s.Late && !s.AtRisk ? '-' : '') + '</td></tr>';
       }).join('') + '</tbody></table><div class="hint">Each stage: qty (% of planned qty); below = % of fabric issued. Same figures as Season Production Status on the Management Dashboard.</div>' : '<div class="card empty">No active plans in an open season.</div>';
 
+    h += '<h3 class="sec">Alerts' + (r.alertsTotal > r.alerts.length ? ' (top ' + r.alerts.length + ' of ' + r.alertsTotal + ')' : '') + '</h3>';
+    var canGo = function (k) { return S.menu.some(function (m) { return m.key === k; }); };
+    h += r.alerts.length ? '<table><thead><tr><th>Level</th><th>Alert</th><th>Details</th><th></th></tr></thead><tbody>' + r.alerts.map(function (a) {
+      var sv = DASH_SEV[a.Sev] || ['', ''], g = a.Go || DASH_GO[a.Type] || '';
+      return '<tr><td data-l="Level"><span class="badge ' + sv[1] + '">' + esc(sv[0]) + '</span></td><td data-l="Alert"><b>' + esc(a.Title) + '</b></td><td data-l="Details">' + esc(a.Text) + '</td>' +
+        '<td class="acts-td"><div class="acts">' + (g && canGo(g) ? '<button class="btn sm ghost" type="button" data-go="' + esc(g) + '">Open</button>' : '') + '</div></td></tr>';
+    }).join('') + '</tbody></table>' : '<div class="card empty">No alerts. Everything is on track.</div>';
+
     $('#dh').innerHTML = h;
-    $('#df').onsubmit = function (e) { e.preventDefault(); S.df.date = $('#df_d').value; S.df.unitId = $('#df_u') ? $('#df_u').value : ''; loadDash(); };
+    var uSel = selNames.slice();
+    if ($('#df .ms')) msWire($('#df'), function (k, vals) { uSel = vals; });
+    if ($('#dkm')) $('#dkm').addEventListener('toggle', function () { S.dkOpen = this.open; });
+    $('#df').onsubmit = function (e) {
+      e.preventDefault();
+      var fr = $('#df_f').value || r.today, to = $('#df_t').value || r.today;
+      if (fr > to) return toast('From date is after To date', 'bad');
+      S.df = { from: fr, to: to, unitIds: uSel.map(function (n) { return uId[n]; }).filter(Boolean) }; loadDash();
+    };
     $('#dh').onclick = function (e) { var g = e.target.getAttribute && e.target.getAttribute('data-go'); if (g) go(g); };
     $('#dcsv1').onclick = function () {
-      csvDownload('daily-production-' + r.date + '.csv', [['Unit'].concat(r.procs.map(function (p) { return STAGE[p] || p; }), ['Present', 'Absent %', 'Sewing efficiency %'])].concat(
+      csvDownload('daily-production-' + r.from + (r.from === r.to ? '' : '_' + r.to) + '.csv', [['Unit'].concat(r.procs.map(function (p) { return STAGE[p] || p; }), ['Present', 'Absent %', 'Sewing efficiency %'])].concat(
         r.daily.map(function (d) { return [d.Unit].concat(r.procs.map(function (p) { return d.By[p]; }), [d.Present, d.AbsentPct, d.Eff]); }),
         [['Total'].concat(r.procs.map(function (p) { return r.totals[p]; }))]));
     };
@@ -3166,9 +3185,9 @@
     var r = S.lay, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Start a lay on a free table, then complete it with the pieces laid. When the last lay of a lot is done, tick <b>last lay</b> – the lot then moves to cutting. Use <b>Adjust / Cancel</b> when part of the lot will not be laid (e.g. damaged fabric returned to the warehouse): the lot qty and the fabric issued against the plan go down.</div>';
     h += '<h3 class="sec">Waiting for layering</h3>' + (r.notStarted.lots ? '<div class="hint" style="margin-bottom:8px"><b>' + r.notStarted.lots + '</b> lot(s) / <b>' + fmtNum(r.notStarted.pcs) + '</b> pcs are lying as fabric, layering not started.</div>' : '');
-    h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Width</th><th>Status</th><th>Balance</th><th>Laid</th><th>To lay</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Lot date</th><th>Plan</th><th>Width</th><th>Status</th><th>Balance</th><th>Laid</th><th>To lay</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Lot date">' + esc(x.Lot_Date ? dfmt(x.Lot_Date) : '-') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Status">' + (x.Started ? '<span class="badge">Layering started</span>' : '<span class="badge warn">Not started</span><div class="cellsub">Fabric in unit ' + (x.WaitDays == null ? '' : x.WaitDays + ' day(s)') + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>') + '</td><td data-l="Balance">' + fmtNum(x.Balance) + (x.Adj || x.Moved_Out ? '<div class="cellsub">Lot ' + fmtNum(x.Lot_Qty) + (x.Moved_Out ? ' · moved ' + fmtNum(x.Moved_Out) : '') + (x.Adj ? ' · <span style="color:var(--bad)">adjusted −' + fmtNum(x.Adj) + '</span>' : '') + '</div>' : '') + '</td><td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="To lay"><b>' + fmtNum(x.PendingLay) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button><button class="btn sm ghost" data-adj="' + esc(x.Lot_ID) + '" title="Reduce the lot qty (fabric returned, damage) or cancel the lot">Adjust / Cancel</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot is waiting for layering.</div>';
@@ -3184,7 +3203,7 @@
       r.done.map(function (x) {
         return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
           '<td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Completed">' + esc(dfmt(x.End_At)) + '</td><td data-l="Duration"><b>' + esc(x.Duration || '-') + '</b></td><td data-l="Qty"><b>' + fmtNum(x.Lay_Qty) + '</b></td>' +
-          (w ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? '<button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
+          (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-le="' + esc(x._id) + '">Edit</button>' : '') + (x.canCancel ? '<button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">Nothing completed yet.</div>';
     $('#vb').innerHTML = h;
     $('#vb').onclick = function (e) {
@@ -3193,6 +3212,7 @@
       if (a('data-start')) return startLayForm(a('data-start'));
       if (a('data-adj')) { var lx = S.lay.pending.filter(function (z) { return z.Lot_ID === a('data-adj'); })[0]; if (lx) adjForm({ Lot_ID: lx.Lot_ID, Lot_No: lx.Lot_No, Lot_Qty: lx.Lot_Qty, Moved_Out: lx.Moved_Out, Adj: lx.Adj, Adj_Reason: lx.Adj_Reason, Laid: lx.Laid }, loadLay); return; }
       if (a('data-done')) return doneLayForm(a('data-done'));
+      if (a('data-le')) return editLayForm(a('data-le'));
       if (a('data-xl')) {
         var id = a('data-xl');
         confirmBox('Cancel ' + id + '?', 'This lay will be cancelled.', 'Cancel lay', true).then(function (ok) {
@@ -3225,6 +3245,25 @@
         };
         if (gross - q === 0) confirmBox('Cancel lot ' + x.Lot_No + '?', 'All ' + fmtNum(gross) + ' pcs are adjusted, so the lot will be cancelled. You can undo this from the Lots page.', 'Cancel lot', true).then(function (ok) { if (ok) go2(); });
         else go2();
+      };
+    });
+  }
+  function editLayForm(id) {
+    var x = S.lay.done.filter(function (z) { return z._id === id; })[0]; if (!x) return;
+    openModal('<h3>Edit ' + esc(x.Lay_ID) + ' – ' + esc(x.Lot_No) + '</h3><div class="hint">Lot balance ' + fmtNum(x.Balance) + ' · laid in all lays ' + fmtNum(x.Laid) + ' · this lay ' + fmtNum(x.Lay_Qty) + '</div>' +
+      '<form id="le"><label for="le_q">Correct lay qty</label><input id="le_q" type="number" min="1" step="1" inputmode="numeric" value="' + x.Lay_Qty + '"><div class="hint" id="le_s"></div>' +
+      '<label for="le_r">Reason</label><input id="le_r" maxlength="200" autocomplete="off" placeholder="e.g. typed 1300 instead of 1030">' +
+      '<div class="row"><button type="button" class="btn ghost" id="le_x">Back</button><button class="btn" type="submit">Save</button></div></form>', function () {
+      function calc() { var q = Number($('#le_q').value) || 0, t = x.Laid - x.Lay_Qty + q; $('#le_s').innerHTML = 'Laid for the lot after the change <b>' + fmtNum(t) + '</b> of ' + fmtNum(x.Balance) + (t >= x.Balance ? ' · layering closes' : ''); }
+      calc(); $('#le_q').oninput = calc; $('#le_x').onclick = closeModal;
+      $('#le').onsubmit = function (ev) {
+        ev.preventDefault();
+        var pay = { id: id, qty: $('#le_q').value, reason: $('#le_r').value };
+        var send = function (ov) { return api('layEdit', Object.assign({ confirmOver: ov }, pay)).then(function () { closeModal(); toast('Lay qty corrected', 'ok'); return loadLay(); }); };
+        send(false).catch(function (e) {
+          if (e.code !== 'OVER') return fail(e);
+          confirmBox('More than the lot balance', e.message.replace(' Confirm to continue.', '') + ' Continue?', 'Continue', true).then(function (ok) { if (ok) send(true).catch(fail); });
+        });
       };
     });
   }

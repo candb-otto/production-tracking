@@ -107,7 +107,7 @@ th{background:#F7F9FC;font-size:12px;text-transform:uppercase;letter-spacing:.04
 tr:last-child td{border-bottom:0}
 .badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:#E8EDF4;color:var(--navy)}
 .badge.warn{background:#FFF1D6;color:var(--warn)} .badge.ok{background:#E3F4EA;color:var(--ok)} .badge.off{background:#FDECEA;color:var(--bad)}
-.acts{display:flex;gap:6px;flex-wrap:wrap}.ss-q{margin-bottom:6px}.ss-n:empty{display:none}.acts .btn{white-space:nowrap}
+.acts{display:flex;gap:6px;flex-wrap:wrap}.jr.dk{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.dk-more{margin-top:16px;border-top:1px solid var(--line);padding-top:4px}.dk-more>summary{cursor:pointer;font-weight:700;color:var(--navy);padding:10px 0;font-size:15px}.ss-q{margin-bottom:6px}.ss-n:empty{display:none}.acts .btn{white-space:nowrap}
 .empty{text-align:center;color:var(--muted);padding:34px 12px}
 @media (max-width:680px){
   table,thead,tbody,tr,td{display:block}
