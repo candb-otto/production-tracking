@@ -190,13 +190,13 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
 
   /* ---------- dashboard (Phase 14) ---------- */
-  var DASH_GO = { FORECAST: 'forecast', CUTOFF: 'planning', AGING: 'tracking', MANPOWER: 'manpower', EFFICIENCY: 'efficiency' };
+  var DASH_GO = { DATABASE: 'dbusage', FORECAST: 'forecast', CUTOFF: 'planning', AGING: 'tracking', MANPOWER: 'manpower', EFFICIENCY: 'efficiency' };
   var DASH_SEV = { LATE: ['Late', 'off'], AT_RISK: ['At risk', 'warn'], WARN: ['Attention', 'warn'], INFO: ['Info', ''] };
   var FSTG = { FABRIC: 'Fabric', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'FG inward', IRONING: 'Ironing', PACKING: 'Sent to Packing' };
   function csvDownload(name, rows) {
@@ -808,6 +808,31 @@
       csvDownload('season-progress-' + r.today + '.csv', [['Season', 'Plans', 'Planned qty'].concat(r.stageKeys.map(function (s) { return FSTG[s] + ' pcs'; }), r.stageKeys.map(function (s) { return FSTG[s] + ' % of planned'; }), r.stageKeys.map(function (s) { return FSTG[s] + ' % of issued'; }), ['Late', 'At risk'])].concat(
         r.progress.map(function (s) { var by = {}; s.Stages.forEach(function (z) { by[z.k] = z; }); return [s.Season, s.Plans, s.Plan_Qty].concat(r.stageKeys.map(function (k) { return by[k] ? by[k].Done : ''; }), r.stageKeys.map(function (k) { return by[k] ? by[k].Pct : ''; }), r.stageKeys.map(function (k) { return by[k] && by[k].PctIssued != null ? by[k].PctIssued : ''; }), [s.Late, s.AtRisk]); })));
     };
+  }
+
+  /* ---------- database usage (Admin / Super Admin) ---------- */
+  function viewDbUsage(el) {
+    el.innerHTML = '<div class="page-h"><h2>Database Usage</h2><button class="btn sm ghost" id="dbr" type="button">Refresh</button></div><div id="dbb"><div class="card empty">Loading…</div></div>';
+    $('#dbr').onclick = function () { viewDbUsage(el); };
+    api('dbUsage').then(function (r) {
+      var col = { ok: 'var(--ok, #1f8a4c)', warn: '#c98a00', bad: 'var(--bad)' }[r.level], n = function (v) { return Number(v).toLocaleString('en-IN'); };
+      var h = '<div class="mhelp">The database is one Google Sheet. Google allows <b>' + n(r.limit) + ' cells</b> in one spreadsheet, and every cell of every sheet counts – <b>empty rows and columns too</b>. Checked ' + esc(r.checkedAt) + '.</div>';
+      h += '<div class="jr dk">' +
+        '<div class="jc"><h4>Cells used</h4><div style="font-size:26px;font-weight:700">' + n(r.grid) + '</div><div class="sub">' + r.gridPct + '% of ' + n(r.limit) + ' (all sheet cells)</div></div>' +
+        '<div class="jc"><h4>Space left</h4><div style="font-size:26px;font-weight:700;color:' + col + '">' + n(r.left) + '</div><div class="sub">' + r.leftPct + '% left</div></div>' +
+        '<div class="jc"><h4>Cells with data</h4><div style="font-size:26px;font-weight:700">' + n(r.used) + '</div><div class="sub">' + r.usedPct + '% of the limit</div></div>' +
+        '<div class="jc"><h4>Empty cells counted</h4><div style="font-size:26px;font-weight:700">' + n(r.empty) + '</div><div class="sub">blank rows / columns in the sheets</div></div>' +
+        '<div class="jc"><h4>Growth</h4><div style="font-size:26px;font-weight:700">' + n(r.perDay) + '</div><div class="sub">cells a day (last 30 days)' + (r.daysLeft != null ? ' · full in about ' + n(r.daysLeft) + ' days' : '') + '</div></div></div>';
+      h += '<div class="card" style="margin:10px 0"><div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:6px"><span>' + r.gridPct + '% used</span><span>' + r.leftPct + '% left</span></div>' +
+        '<div style="height:16px;border-radius:8px;background:#E6EAF0;overflow:hidden;display:flex"><i style="display:block;width:' + Math.min(100, r.usedPct) + '%;background:' + col + '" title="Cells with data"></i><i style="display:block;width:' + Math.max(0, Math.min(100, r.gridPct) - Math.min(100, r.usedPct)) + '%;background:' + col + ';opacity:.35" title="Empty cells counted"></i></div>' +
+        '<div class="hint" style="margin-top:6px">Dark: cells with data · light: empty cells that still count.' + (r.level !== 'ok' ? ' <b style="color:' + col + '">Above ' + (r.level === 'bad' ? '90' : '75') + '% – plan an archive of old seasons, and delete empty rows / columns at the bottom and right of the big sheets.</b>' : ' Deleting empty rows and columns at the bottom / right of a sheet gives that space back.') + '</div></div>';
+      h += '<h3 class="sec">By sheet</h3><table><thead><tr><th>Sheet</th><th>Data rows</th><th>Columns</th><th>Grid (rows × cols)</th><th>Cells counted</th><th>% of limit</th><th>Empty cells</th><th>Rows added (30 days)</th></tr></thead><tbody>' +
+        r.sheets.map(function (x) {
+          return '<tr><td data-l="Sheet"><b>' + esc(x.Sheet) + '</b></td><td data-l="Data rows">' + n(x.Rows) + '</td><td data-l="Columns">' + x.Cols + '</td><td data-l="Grid">' + n(x.GridRows) + ' × ' + x.GridCols + '</td>' +
+            '<td data-l="Cells counted"><b>' + n(x.Grid) + '</b></td><td data-l="% of limit">' + (Math.round(x.Grid / r.limit * 10000) / 100) + '%</td><td data-l="Empty cells">' + n(x.Empty) + '</td><td data-l="Rows added (30 days)">' + n(x.Added30) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      $('#dbb').innerHTML = h;
+    }).catch(fail);
   }
 
   /* ---------- change password ---------- */
