@@ -1359,6 +1359,7 @@
     S.mset = !!settings;
     el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div><div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
     api(settings ? 'settingsDefs' : 'masterDefs').then(function (defs) {
+      if (!settings && canSeasons()) defs = [{ name: SEASONS_TAB, label: 'Seasons' }].concat(defs);
       S.mdefs = defs;
       if (!S.mcur || !defs.some(function (d) { return d.name === S.mcur; })) S.mcur = defs[0].name;
       paintTabs(); loadMaster();
@@ -1374,9 +1375,11 @@
       if (m && m !== S.mcur) { S.mcur = m; paintTabs(); loadMaster(); }
     };
   }
+  var SEASONS_TAB = '__seasons';
   function loadMaster() {
     var name = S.mcur;
     $('#mb').innerHTML = ''; $('#mh').innerHTML = '';
+    if (name === SEASONS_TAB) return loadSeasons();
     return api(S.mset ? 'settingsList' : 'masterList', { name: name }).then(function (r) {
       if (name !== S.mcur) return;
       S.mrows = r.rows; S.mrefs = r.refs; paintMaster();
@@ -1493,9 +1496,9 @@
   function ltName(t, src) { if (t === 'JOB_WORK') return 'job work'; return t === 'IRON_ONLY' ? 'ironing only' + (src ? ' · ' + srcName(src) : '') : String(t || '').toLowerCase(); }
   function viewPlanning(el) {
     var canWrite = (S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN') && pageEdit('planning');
-    S.ptab = canWrite ? (S.ptab || 'plans') : 'plans';
+    S.ptab = canWrite && S.ptab === 'grid' ? 'grid' : 'plans';
     el.innerHTML = '<div class="page-h"><h2>Planning</h2></div>' +
-      (canWrite ? '<div class="tabs" id="pt"><button class="tab" data-t="plans">Plans</button><button class="tab" data-t="grid">Plan grid</button><button class="tab" data-t="seasons">Seasons</button></div>' : '') +
+      (canWrite ? '<div class="tabs" id="pt"><button class="tab" data-t="plans">Plans</button><button class="tab" data-t="grid">Plan grid</button></div>' : '') +
       '<div id="ph"></div><div id="pb"></div>';
     if (canWrite) {
       $('#pt').onclick = function (e) {
@@ -1511,9 +1514,6 @@
     $('#ph').innerHTML = ''; $('#pb').innerHTML = '';
     var tab = S.ptab;
     if (tab === 'grid') return loadGrid();
-    if (tab === 'seasons') {
-      return api('seasonList').then(function (r) { if (S.ptab !== 'seasons') return; S.seasons = r; paintSeasons(); }).catch(fail);
-    }
     return api('planList', { seasonId: S.pseason || '' }).then(function (r) {
       if (S.ptab !== 'plans') return;
       S.plans = r;
@@ -1521,13 +1521,16 @@
       paintPlans();
     }).catch(fail);
   }
+  /* Seasons live on the Masters page (tab "Seasons"); Admin and Production Admin manage them */
+  function canSeasons() { return (S.user.role === 'ADMIN' || S.user.role === 'PROD_ADMIN') && pageEdit('planning'); }
+  function loadSeasons() { return api('seasonList').then(function (r) { if (S.mcur !== SEASONS_TAB) return; S.seasons = r; paintSeasons(); }).catch(fail); }
   function paintSeasons() {
     var r = S.seasons, rows = r.rows;
-    $('#ph').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">A season groups plans. Completing a season closes its active plans and makes it read-only.</div><button class="btn" id="sadd">+ Add season</button></div>';
+    $('#mh').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">A season groups plans. Completing a season closes its active plans and makes it read-only.</div><button class="btn" id="sadd">+ Add season</button></div>';
     $('#sadd').onclick = function () { seasonForm(null); };
-    if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No seasons yet. Click “+ Add season”.</div>'; return; }
+    if (!rows.length) { $('#mb').innerHTML = '<div class="card empty">No seasons yet. Click “+ Add season”.</div>'; return; }
     var SC = [['Fabric_Cutoff_Date', 'Fabric'], ['Cutting_Cutoff_Date', 'Cutting'], ['Sewing_Cutoff_Date', 'Sewing'], ['Iron_Cutoff_Date', 'Ironing'], ['Pack_Cutoff_Date', 'Packing recv.']];
-    $('#pb').innerHTML = '<table><thead><tr><th>Season</th><th>Status</th><th>Default cutoffs (set at creation)</th><th>Plans (active/total)</th><th>Total qty</th><th>Latest sewing cutoff</th><th></th></tr></thead><tbody>' +
+    $('#mb').innerHTML = '<table><thead><tr><th>Season</th><th>Status</th><th>Default cutoffs (set at creation)</th><th>Plans (active/total)</th><th>Total qty</th><th>Latest sewing cutoff</th><th></th></tr></thead><tbody>' +
       rows.map(function (s) {
         var open = s.Status === 'IN_PROGRESS';
         var cuts = SC.filter(function (c) { return s[c[0]]; }).map(function (c) { return '<div class="cellsub"><b>' + esc(c[1]) + '</b> ' + esc(dfmt(s[c[0]])) + '</div>'; }).join('');
@@ -1541,7 +1544,7 @@
                 : (S.user.role === 'ADMIN' ? '<button class="btn sm ghost" data-a="reopen" data-id="' + esc(s._id) + '">Reopen</button>' : '')) +
           '</div></td></tr>';
       }).join('') + '</tbody></table>';
-    $('#pb').onclick = function (e) {
+    $('#mb').onclick = function (e) {
       var a = e.target.getAttribute && e.target.getAttribute('data-a'); if (!a) return;
       var id = e.target.getAttribute('data-id');
       var s = rows.filter(function (x) { return x._id === id; })[0]; if (!s) return;
@@ -1549,12 +1552,12 @@
       else if (a === 'done') {
         confirmBox('Complete season “' + s.Season_Name + '”?', s.ActivePlans + ' active plan(s) will be closed and the season becomes read-only. Only an Admin can reopen it.', 'Complete', true).then(function (ok) {
           if (!ok) return;
-          api('seasonSetStatus', { id: id, status: 'COMPLETED' }).then(function (x) { toast('Season completed' + (x.closedPlans ? ' – ' + x.closedPlans + ' plan(s) closed' : ''), 'ok'); return loadPlanning(); }).catch(fail);
+          api('seasonSetStatus', { id: id, status: 'COMPLETED' }).then(function (x) { toast('Season completed' + (x.closedPlans ? ' – ' + x.closedPlans + ' plan(s) closed' : ''), 'ok'); return loadSeasons(); }).catch(fail);
         });
       } else if (a === 'reopen') {
         confirmBox('Reopen season “' + s.Season_Name + '”?', 'The season becomes editable again. Closed plans stay closed until you reopen them.', 'Reopen').then(function (ok) {
           if (!ok) return;
-          api('seasonSetStatus', { id: id, status: 'IN_PROGRESS' }).then(function () { toast('Season reopened', 'ok'); return loadPlanning(); }).catch(fail);
+          api('seasonSetStatus', { id: id, status: 'IN_PROGRESS' }).then(function () { toast('Season reopened', 'ok'); return loadSeasons(); }).catch(fail);
         });
       }
     };
@@ -1576,7 +1579,7 @@
           var f = { Season_Name: $('#sf_n').value };
           Array.prototype.forEach.call(document.querySelectorAll('.sf_cut'), function (i) { if (!i.disabled) f[i.getAttribute('data-k')] = i.value; });
           api('seasonSave', { id: s ? s._id : '', fields: f })
-            .then(function () { closeModal(); toast('Saved', 'ok'); return loadPlanning(); }).catch(fail);
+            .then(function () { closeModal(); toast('Saved', 'ok'); return loadSeasons(); }).catch(fail);
         };
       });
   }
@@ -1663,7 +1666,7 @@
         return '<option value="' + esc(o.id) + '"' + (cur === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>';
     }
     var curSeason = p ? p.Season_ID : (pre.seasonId || S.pseason || '');
-    if (!p && !refs.Season_ID.length) { toast('Add a season first (Seasons tab).', 'bad'); return; }
+    if (!p && !refs.Season_ID.length) { toast('Add a season first (Masters → Seasons).', 'bad'); return; }
     var seasonLabel = p ? p.Season : '';
     var curOrder = p ? p.Order_ID : (pre.orderId || '');
     var needReason = false, lastFit = null, timer = null, curIO = p ? p.Plan_Type === 'IRON_ONLY' : false;
@@ -1783,7 +1786,7 @@
       '<select id="g_s" style="max-width:240px"><option value="">Select season…</option>' + r.seasons.map(function (o) { return '<option value="' + esc(o.id) + '"' + (se === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></div>';
     $('#ph').innerHTML = head;
     $('#g_s').onchange = function () { S.gseason = this.value; loadGrid(); };
-    if (!se) { $('#pb').innerHTML = '<div class="card empty">' + (r.seasons.length ? 'Select a season.' : 'Add a season first (Seasons tab).') + '</div>'; return; }
+    if (!se) { $('#pb').innerHTML = '<div class="card empty">' + (r.seasons.length ? 'Select a season.' : 'Add a season first (Masters → Seasons).') + '</div>'; return; }
     if (!r.units.length || !r.categories.length) { $('#pb').innerHTML = '<div class="card empty">Add categories and units in Masters first.</div>'; return; }
     var h = '<div style="overflow-x:auto"><table class="gridt"><thead><tr><th>Category</th><th>Plan Qty</th><th>Sewing cutoff</th>' +
       r.units.map(function (u) { return '<th>' + esc(u.label) + (u.jobWork ? '<div class="cellsub">job work</div>' : '') + '</th>'; }).join('') + '<th>Total</th><th>Left</th></tr></thead><tbody>';
@@ -2191,7 +2194,7 @@
   function loadSewOut() { return api('sewOutList').then(function (r) { S.so = r; paintSewOut(); }).catch(fail); }
   function paintSewOut() {
     var r = S.so, w = r.canWrite, h = '', open = r.lots.filter(function (x) { return x.InLine > 0; });
-    $('#vh').innerHTML = '<div class="mhelp">Pick a lot, then an hour slot, and enter the output count. Total output cannot exceed the cut quantity. An hour can be changed or removed only until the next hour is entered.</div>';
+    $('#vh').innerHTML = '<div class="mhelp">Pick a lot, then an hour slot, and enter the output count – for shirts as F/S and H/S, for trousers as Flat and Fleet. Total output cannot exceed the cut quantity. An hour can be changed or removed only until the next hour is entered.</div>';
     h += '<h3 class="sec">Lots in sewing</h3>';
     h += open.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>In line</th><th>Days</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       open.map(function (x) {
@@ -2202,7 +2205,7 @@
     h += '<h3 class="sec">Recent hourly output</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Date</th><th>Hour</th><th>Lot</th><th>Category</th><th>Unit</th><th>Output</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
-        return '<tr><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Hour">' + esc(x.HourLabel) + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.CatName || x.Category) + '</td><td data-l="Unit">' + esc(x.UnitName || x.Unit) + '</td><td data-l="Output"><b>' + fmtNum(x.Qty) + '</b></td>' +
+        return '<tr><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Hour">' + esc(x.HourLabel) + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.CatName || x.Category) + '</td><td data-l="Unit">' + esc(x.UnitName || x.Unit) + '</td><td data-l="Output"><b>' + fmtNum(x.Qty) + '</b>' + (function () { var kn = kindNames(x.CatName || x.Category); return kn ? '<div class="cellsub">' + kn[0] + ' ' + fmtNum(x.Qty - (x.Qty2 || 0)) + ' · ' + kn[1] + ' ' + fmtNum(x.Qty2 || 0) + '</div>' : ''; })() + '</td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-ed="' + esc(x._id) + '">Edit</button><button class="btn sm ghost" data-xo="' + esc(x._id) + '">Remove</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No output entered yet.</div>';
     $('#vb').innerHTML = h;
@@ -2216,13 +2219,21 @@
       });
     };
   }
+  /* piece types by the last word of the category: Shirt -> F/S + H/S, Trouser -> Flat + Fleet; other categories: one qty */
+  function kindNames(cat) {
+    var w = String(cat || '').trim().split(/\s+/).pop().toLowerCase();
+    return /^shirts?$/.test(w) ? ['F/S', 'H/S'] : (/^(trousers?|pants?)$/.test(w) ? ['Flat', 'Fleet'] : null);
+  }
   function outForm(lotId, edit) {
     var lot = S.so.lots.filter(function (x) { return x.Lot_ID === lotId; })[0]; if (!lot) return;
-    var slots = S.so.slots, day = edit ? edit.Date : todayStr();
+    var slots = S.so.slots, day = edit ? edit.Date : todayStr(), kn = kindNames(lot.Category);
+    var e2 = edit ? (edit.Qty2 || 0) : 0, e1 = edit ? edit.Qty - e2 : 0;
     openModal('<h3>' + (edit ? 'Change output' : 'Hourly output') + ' – ' + esc(lot.Lot_No) + '</h3><div class="hint" id="oh_i"></div>' +
       '<form id="oh"><label for="oh_d">Date</label><input id="oh_d" type="date" max="' + todayStr() + '" value="' + esc(day) + '"' + (edit ? ' disabled' : '') + '>' +
       '<label for="oh_h">Hour slot</label><select id="oh_h"' + (edit ? ' disabled' : '') + '></select>' +
-      '<label for="oh_q">Output (pieces)</label><input id="oh_q" type="number" min="1" step="1" inputmode="numeric" value="' + (edit ? edit.Qty : '') + '">' +
+      (kn ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="oh_q1">' + kn[0] + ' (pieces)</label><input id="oh_q1" type="number" min="0" step="1" inputmode="numeric" value="' + (edit ? e1 : '') + '"></div>' +
+            '<div><label for="oh_q2">' + kn[1] + ' (pieces)</label><input id="oh_q2" type="number" min="0" step="1" inputmode="numeric" value="' + (edit ? e2 : '') + '"></div></div><div class="hint">Fill one or both – the total must be more than 0.</div>'
+          : '<label for="oh_q">Output (pieces)</label><input id="oh_q" type="number" min="1" step="1" inputmode="numeric" value="' + (edit ? edit.Qty : '') + '">') +
       '<div class="row"><button type="button" class="btn ghost" id="oh_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function used() { var d = $('#oh_d').value; return S.so.rows.filter(function (x) { return x.Lot_ID === lotId && x.Date === d; }); }
       function slotsFill() {
@@ -2232,15 +2243,21 @@
         $('#oh_h').innerHTML = free.length ? free.map(function (s) { return '<option value="' + s.h + '">' + esc(s.label) + '</option>'; }).join('') : '<option value="">No free slot on this date</option>';
       }
       function info() {
-        var add = Number($('#oh_q').value) || 0, base = edit ? edit.Qty : 0, out = lot.Out + add - base;
-        $('#oh_i').innerHTML = 'Cut ' + fmtNum(lot.Cut) + ' · output so far ' + fmtNum(lot.Out) + ' · after saving <b>' + fmtNum(out) + '</b> · in line <b>' + fmtNum(lot.Cut - out) + '</b>' + (out > lot.Cut ? ' <span style="color:var(--bad)">· over cut qty</span>' : '');
+        var add = kn ? (Number($('#oh_q1').value) || 0) + (Number($('#oh_q2').value) || 0) : (Number($('#oh_q').value) || 0), base = edit ? edit.Qty : 0, out = lot.Out + add - base;
+        $('#oh_i').innerHTML = 'Cut ' + fmtNum(lot.Cut) + ' · output so far ' + fmtNum(lot.Out) + (kn ? ' · this entry <b>' + fmtNum(add) + '</b>' : '') + ' · after saving <b>' + fmtNum(out) + '</b> · in line <b>' + fmtNum(lot.Cut - out) + '</b>' + (out > lot.Cut ? ' <span style="color:var(--bad)">· over cut qty</span>' : '');
       }
       slotsFill(); info();
-      $('#oh_d').onchange = slotsFill; $('#oh_q').oninput = info; $('#oh_x').onclick = closeModal;
+      $('#oh_d').onchange = slotsFill; $('#oh').oninput = info; $('#oh_x').onclick = closeModal;
       $('#oh').onsubmit = function (ev) {
         ev.preventDefault();
         if (!$('#oh_h').value) return toast('Select an hour slot', 'bad');
-        api('sewOutSave', { lotId: lotId, date: $('#oh_d').value, hour: $('#oh_h').value, qty: $('#oh_q').value }).then(function () { closeModal(); toast('Output saved', 'ok'); return loadSewOut(); }).catch(fail);
+        var pay = { lotId: lotId, date: $('#oh_d').value, hour: $('#oh_h').value };
+        if (kn) {
+          var a1 = Number($('#oh_q1').value) || 0, a2 = Number($('#oh_q2').value) || 0;
+          if (a1 + a2 <= 0) return toast('Enter the ' + kn[0] + ' and / or ' + kn[1] + ' qty (total more than 0)', 'bad');
+          pay.qty1 = $('#oh_q1').value; pay.qty2 = $('#oh_q2').value;
+        } else pay.qty = $('#oh_q').value;
+        api('sewOutSave', pay).then(function () { closeModal(); toast('Output saved', 'ok'); return loadSewOut(); }).catch(fail);
       };
     });
   }
