@@ -303,7 +303,7 @@
         var lmOf = function (tr) {
           if (tr._lmv !== undefined) return tr._lmv;
           var v = lotCol >= 0 ? look(S.lm.l, first(tr.cells[lotCol])) : null;
-          if (!v && planCol >= 0) v = look(S.lm.p, first(tr.cells[planCol]));
+          if (!v && planCol >= 0) { var pc = tr.cells[planCol]; v = look(S.lm.p, pc && pc.getAttribute('data-p') ? pc.getAttribute('data-p').toLowerCase() : first(pc)); }
           if (!v) { var m = /PLN-\d+/i.exec(tr.textContent); if (m) v = S.lm.p[m[0].toLowerCase()] || null; }
           return (tr._lmv = v);
         };
@@ -1944,10 +1944,10 @@
     var r = S.jw, h = '';
     $('#jw_h').innerHTML = '<div class="mhelp">Fabric is sent to the job worker from <b>Fabric Issue</b> (plan on a job work unit). Record the finished goods that come back here, lot by lot. Tick <b>last inward</b> to close a lot that will not come back in full – the pieces still pending are stored as short. Lots marked <i>in-house finish</i> can be ironed, stickered and packed in the factory as the pieces arrive.</div>';
     h += '<h3 class="sec">Pending at the job worker</h3>';
-    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Sent out</th><th>Inward</th><th>Pending</th><th>Cutoff</th><th>Finish</th>' + (r.canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Sent out on</th><th>Plan</th><th>Category / Unit</th><th>Sent out</th><th>Inward</th><th>Pending</th><th>Cutoff</th><th>Finish</th>' + (r.canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
         var pct = x.Sent ? Math.min(100, Math.round(x.Inward / x.Sent * 100)) : 0;
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
+        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td>' + inTd(x).replace('"In date"', '"Sent out on"') + planTd(x) +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Sent out">' + fmtNum(x.Sent) + '</td><td data-l="Inward"><div class="ebar"><i style="width:' + pct + '%"></i></div>' + fmtNum(x.Inward) + '</td><td data-l="Pending"><b>' + fmtNum(x.Pending) + '</b></td>' +
           '<td data-l="Cutoff">' + (x.Cutoff ? esc(dfmt(x.Cutoff)) : '-') + '</td><td data-l="Finish">' + (x.Inhouse ? '<span class="badge">In-house</span>' : '-') + '</td>' +
@@ -2023,7 +2023,7 @@
       rows.map(function (x) {
         var live = x.Lot_Status === 'ACTIVE';
         return '<tr data-unit="' + esc(x.Unit) + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Lot_Remarks ? ' · ' + esc(x.Lot_Remarks) : '') + '</div></td>' +
-          '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
+          planTd(x) +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Source">' + esc(x.Source) + '</td><td data-l="Qty (pcs)"><b>' + fmtNum(x.Lot_Qty) + '</b></td><td data-l="Received">' + esc(dfmt(x.Received_Date)) + '</td>' +
           '<td data-l="Stage"><span class="badge ' + (live ? (x.Locked ? '' : 'ok') : 'off') + '">' + (live ? (x.Locked ? 'In production' : 'Waiting for ironing') : 'Cancelled') + '</span></td>' +
@@ -2095,7 +2095,7 @@
       rows.map(function (x) {
         var live = x.Status === 'ACTIVE';
         return '<tr data-unit="' + esc(x.Unit) + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + ' · ' + esc(x.Fabric_Issue_ID) + '</div></td>' +
-          '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
+          planTd(x) +
           '<td data-l="Category / Unit">' + esc(x.Category) + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Sub type">' + (x.Sub_Type ? esc(x.Sub_Type) : '-') + '</td>' +
           '<td data-l="Fabric">' + esc(x.Fabric_Type) + (x.Fabric_Width ? '<div class="cellsub">' + esc(x.Fabric_Width) + '</div>' : '') + '</td>' +
@@ -2180,8 +2180,19 @@
   var STAGE = { LAYERING: 'Layering', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', WASHING: 'Washing', IRONING: 'Ironing', STICKERING: 'Stickering', PACKING: 'Sent to Packing', PACKED: 'Packed' };
   // ---------------- Phase 7: Sewing ----------------
   function pctTxt(n) { return (n || 0) + '%'; }
+  /* plan cell: season name (normal), plan no (small) under it, then any extra info on the same small line */
+  function seasonOf(x) { if (x.Season) return x.Season; var v = S.lm && S.lm.p ? S.lm.p[String(x.Plan_ID || '').toLowerCase()] : null; return v ? v[0] : ''; }
+  function planTd(x, extra, badge) {
+    var s = seasonOf(x);
+    return '<td data-l="Plan" data-p="' + esc(x.Plan_ID || '') + '">' + (s ? esc(s) : '-') + (badge || '') + '<div class="cellsub">' + esc(x.Plan_ID || '') + (extra ? ' · ' + extra : '') + '</div></td>';
+  }
+  /* date the lot's pieces first came into this department (from the stage before) + days since; last in-date when there were several */
+  function inTd(x) {
+    if (!x.In_Date) return '<td data-l="In date">-</td>';
+    return '<td data-l="In date">' + esc(dfmt(x.In_Date)) + '<div class="cellsub">' + x.In_Days + ' day(s)' + (x.In_Last && x.In_Last !== x.In_Date ? ' · last ' + esc(dfmt(x.In_Last)) : '') + '</div></td>';
+  }
   function lotHead(x) {
-    return '<td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.Washing ? ' <span class="badge">Washing</span>' : '') + (x.JobWork ? ' <span class="badge" title="Job work lot, in-house finishing">Job work</span>' : (x.IronOnly ? ' <span class="badge" title="Ironing-only lot">' + esc(srcName(x.Source) || 'Ironing only') + '</span>' : '')) + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td>';
+    return '<td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.Washing ? ' <span class="badge">Washing</span>' : '') + (x.JobWork ? ' <span class="badge" title="Job work lot, in-house finishing">Job work</span>' : (x.IronOnly ? ' <span class="badge" title="Ironing-only lot">' + esc(srcName(x.Source) || 'Ironing only') + '</span>' : '')) + '</td>' + inTd(x) + planTd(x) + '<td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td>';
   }
   function chain(x) {
     return '<div class="cellsub">Cut ' + fmtNum(x.Cut) + ' → Output ' + fmtNum(x.Out) + ' → QC pass ' + fmtNum(x.QcPass) + ' → Moved ' + fmtNum(x.Moved) + '</div>';
@@ -2196,10 +2207,9 @@
     var r = S.so, w = r.canWrite, h = '', open = r.lots.filter(function (x) { return x.InLine > 0; });
     $('#vh').innerHTML = '<div class="mhelp">Pick a lot, then an hour slot, and enter the output count – for shirts as F/S and H/S, for trousers as Flat and Fleet. Total output cannot exceed the cut quantity. An hour can be changed or removed only until the next hour is entered.</div>';
     h += '<h3 class="sec">Lots in sewing</h3>';
-    h += open.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>In line</th><th>Days</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += open.length ? '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>In line</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       open.map(function (x) {
         return '<tr>' + lotHead(x) + '<td data-l="Cut qty">' + fmtNum(x.Cut) + '</td><td data-l="Output"><b>' + fmtNum(x.Out) + '</b></td><td data-l="In line"><b>' + fmtNum(x.InLine) + '</b></td>' +
-          '<td data-l="Days">' + (x.Days == null ? '-' : x.Days) + '</td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-lot="' + esc(x.Lot_ID) + '"' + (x.InLine <= 0 ? ' disabled' : '') + '>Enter output</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot has pieces in line. A lot appears here after cutting is marked complete and until all its cut pieces have output.</div>';
     h += '<h3 class="sec">Recent hourly output</h3>';
@@ -2277,7 +2287,7 @@
         '<td data-l="Cancel">' + fmtNum(x.QcCancel) + '<div class="cellsub">' + pctTxt(x.CancelPct) + '</div></td><td data-l="Alteration">' + fmtNum(x.QcAlter) + '<div class="cellsub">' + pctTxt(x.AlterPct) + '</div></td>' +
         (w ? '<td class="acts-td"><div class="acts">' + (btn ? '<button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">Add QC</button>' : '') + '</div></td>' : '') + '</tr>';
     }
-    var head = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>Checked</th><th>Balance</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
+    var head = '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>Checked</th><th>Balance</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
     h += '<h3 class="sec">Lots in sewing – QC balance pending</h3>';
     h += open.length ? head + open.map(function (x) { return qcRow(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">No lot has output waiting for QC.</div>';
     h += '<h3 class="sec">Lot summary – no balance</h3>';
@@ -2287,29 +2297,31 @@
       r.rows.map(function (x) {
         return '<tr><td data-l="Entry"><b>' + esc(x.QC_ID) + '</b>' + (x.Remarks ? '<div class="cellsub">' + esc(x.Remarks) + '</div>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.CatName || x.Category) + '</td><td data-l="Unit">' + esc(x.UnitName || x.Unit) + '</td><td data-l="Date">' + esc(dfmt(x.Date)) + '</td>' +
           '<td data-l="Total"><b>' + fmtNum(x.Pass + x.Damage + x.Cancel) + '</b></td><td data-l="Pass">' + fmtNum(x.Pass) + '</td><td data-l="Damage">' + fmtNum(x.Damage) + '</td><td data-l="Cancel">' + fmtNum(x.Cancel) + '</td><td data-l="Alteration">' + fmtNum(x.Alter) + '</td>' +
-          (w ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? corrBtn('SQC', x) + '<button class="btn sm ghost" data-xq="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
+          (w ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? '<button class="btn sm ghost" data-eq="' + esc(x._id) + '">Edit</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No QC entered yet.</div>';
     $('#vb').innerHTML = h;
     $('#vb').onclick = function (e) {
       var t = e.target; if (!t.getAttribute) return;
       if (t.getAttribute('data-lot')) return qcForm(t.getAttribute('data-lot'));
-      var id = t.getAttribute('data-xq');
-      if (id) confirmBox('Cancel ' + id + '?', 'This QC entry will be cancelled.', 'Cancel entry', true).then(function (ok) {
-        if (ok) api('sewQcCancel', { id: id }).then(function () { toast('Entry cancelled', 'ok'); return loadSewQc(); }).catch(fail);
-      });
+      var id = t.getAttribute('data-eq');
+      if (id) { var row = r.rows.filter(function (z) { return z._id === id; })[0]; if (row) qcForm(row.Lot_ID, row); }
     };
   }
-  function qcForm(lotId) {
-    var lot = S.sq.lots.filter(function (x) { return x.Lot_ID === lotId; })[0]; if (!lot) return;
-    var wait = Math.max(0, lot.ToQC);
-    openModal('<h3>Sewing QC – ' + esc(lot.Lot_No) + '</h3><div class="hint">Cut ' + fmtNum(lot.Cut) + ' · hourly output ' + fmtNum(lot.Out) + ' · checked ' + fmtNum(lot.QcTotal) + ' · balance <b>' + fmtNum(wait) + '</b></div>' +
-      '<form id="qf"><label for="qf_d">Date</label><input id="qf_d" type="date" max="' + todayStr() + '" value="' + todayStr() + '">' +
-      '<label for="qf_p">Pass pieces</label><input id="qf_p" type="number" min="0" step="1" inputmode="numeric" value="' + wait + '">' +
-      '<label for="qf_g">Damage pieces</label><input id="qf_g" type="number" min="0" step="1" inputmode="numeric" value="0">' +
-      '<label for="qf_c">Cancel pieces (fabric parts missing)</label><input id="qf_c" type="number" min="0" step="1" inputmode="numeric" value="0">' +
-      '<label for="qf_a">Alteration pieces</label><input id="qf_a" type="number" min="0" step="1" inputmode="numeric" value="0">' +
+  /* new QC entry, or (ed = an entry row) change that entry in place: totals are counted without its old quantities */
+  function qcForm(lotId, ed) {
+    var lot0 = S.sq.lots.filter(function (x) { return x.Lot_ID === lotId; })[0]; if (!lot0) return toast('Sewing of this lot is closed – the entry cannot be changed', 'bad');
+    var lot = lot0;
+    if (ed) lot = Object.assign({}, lot0, { QcPass: lot0.QcPass - ed.Pass, QcDamage: lot0.QcDamage - ed.Damage, QcCancel: lot0.QcCancel - ed.Cancel, QcAlter: lot0.QcAlter - ed.Alter,
+                                           QcTotal: lot0.QcTotal - (ed.Pass + ed.Damage + ed.Cancel), ToQC: lot0.ToQC + ed.Pass + ed.Damage + ed.Cancel });
+    var wait = Math.max(0, lot.ToQC), v = function (k, d) { return ed ? ed[k] : d; };
+    openModal('<h3>' + (ed ? 'Edit QC ' + esc(ed.QC_ID) : 'Sewing QC') + ' – ' + esc(lot.Lot_No) + '</h3><div class="hint">Cut ' + fmtNum(lot.Cut) + ' · hourly output ' + fmtNum(lot.Out) + ' · checked ' + fmtNum(lot.QcTotal) + (ed ? ' (other entries)' : '') + ' · balance <b>' + fmtNum(wait) + '</b></div>' +
+      '<form id="qf"><label for="qf_d">Date</label><input id="qf_d" type="date" max="' + todayStr() + '" value="' + esc(ed ? ed.Date : todayStr()) + '">' +
+      '<label for="qf_p">Pass pieces</label><input id="qf_p" type="number" min="0" step="1" inputmode="numeric" value="' + v('Pass', wait) + '">' +
+      '<label for="qf_g">Damage pieces</label><input id="qf_g" type="number" min="0" step="1" inputmode="numeric" value="' + v('Damage', 0) + '">' +
+      '<label for="qf_c">Cancel pieces (fabric parts missing)</label><input id="qf_c" type="number" min="0" step="1" inputmode="numeric" value="' + v('Cancel', 0) + '">' +
+      '<label for="qf_a">Alteration pieces</label><input id="qf_a" type="number" min="0" step="1" inputmode="numeric" value="' + v('Alter', 0) + '">' +
       '<div class="hint" id="qf_s" style="margin-top:8px"></div>' +
-      '<label for="qf_r">Remarks (optional)</label><input id="qf_r" maxlength="200" autocomplete="off">' +
+      '<label for="qf_r">Remarks (optional)</label><input id="qf_r" maxlength="200" autocomplete="off" value="' + esc(ed ? ed.Remarks || '' : '') + '">' +
       '<div class="row"><button type="button" class="btn ghost" id="qf_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
       function n(id) { return Number($(id).value) || 0; }
       function calc() {
@@ -2321,8 +2333,9 @@
       calc(); $('#qf').oninput = calc; $('#qf_x').onclick = closeModal;
       $('#qf').onsubmit = function (ev) {
         ev.preventDefault();
-        api('sewQcSave', { lotId: lotId, date: $('#qf_d').value, pass: $('#qf_p').value, damage: $('#qf_g').value, cancel: $('#qf_c').value, alteration: $('#qf_a').value, remarks: $('#qf_r').value })
-          .then(function () { closeModal(); toast('QC saved', 'ok'); return loadSewQc(); }).catch(fail);
+        var pay = { date: $('#qf_d').value, pass: $('#qf_p').value, damage: $('#qf_g').value, cancel: $('#qf_c').value, alteration: $('#qf_a').value, remarks: $('#qf_r').value };
+        if (ed) pay.id = ed._id; else pay.lotId = lotId;
+        api(ed ? 'sewQcEdit' : 'sewQcSave', pay).then(function () { closeModal(); toast(ed ? 'QC entry changed' : 'QC saved', 'ok'); return loadSewQc(); }).catch(fail);
       };
     });
   }
@@ -2335,12 +2348,13 @@
   function paintSewFin() {
     var r = S.sf, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Move QC-checked pieces to the next process – pass, damage and cancel are recorded separately, each limited to what QC checked (washing if the lot needs it, otherwise ironing) in as many entries as needed. Sewing closes by itself once cutting is closed and everything cut has been moved; pieces lost in sewing are entered as damage or cancel.</div>';
-    h += '<h3 class="sec">Lots in sewing</h3>';
-    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>QC checked</th><th>Moved</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
-      r.lots.map(function (x) {
+    var ready = r.lots.filter(function (x) { return x.ToMove > 0; });
+    h += '<h3 class="sec">Lots in sewing – ready to move</h3>';
+    h += ready.length ? '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Cut qty</th><th>Output</th><th>QC checked</th><th>Moved</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      ready.map(function (x) {
         return '<tr>' + lotHead(x) + '<td data-l="Cut qty">' + fmtNum(x.Cut) + '</td><td data-l="Output">' + fmtNum(x.Out) + '</td><td data-l="QC checked">' + fmtNum(x.QcTotal) + '<div class="cellsub">Pass ' + fmtNum(x.QcPass) + '</div></td><td data-l="Moved">' + fmtNum(x.Moved) + '</td><td data-l="Ready to move"><b>' + fmtNum(Math.max(0, x.ToMove)) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.ToMove > 0 ? '<button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">Move</button>' : '') + '</div></td>' : '') + '</tr>';
-      }).join('') + '</tbody></table>' : '<div class="card empty">No lot is in sewing.</div>';
+      }).join('') + '</tbody></table>' : '<div class="card empty">No lot has QC-checked pieces waiting to move' + (r.lots.length ? ' (' + r.lots.length + ' lot(s) in sewing are still waiting for output or QC)' : '') + '.</div>';
     h += '<h3 class="sec">Moved to next process</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Entry</th><th>Lot</th><th>Category</th><th>Unit</th><th>Date</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Total</th><th>Next</th><th>Left behind</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
@@ -2389,7 +2403,7 @@
     var r = S.wl, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">As soon as sewing moves pieces, send them to the washing unit in as many entries as needed (name of the outside unit, date, qty). Record each receive from washing; tick <b>last receive</b> when nothing more is coming back.</div>';
     h += '<h3 class="sec">Lots for washing</h3>';
-    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Sewing moved</th><th>Sent</th><th>To send</th><th>At washing unit</th><th>Received</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Sewing moved</th><th>Sent</th><th>To send</th><th>At washing unit</th><th>Received</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
         return '<tr>' + lotHead(x) + '<td data-l="Sewing moved">' + fmtNum(x.SewMoved) + '</td><td data-l="Sent">' + fmtNum(x.Sent) + '</td><td data-l="To send"><b>' + fmtNum(Math.max(0, x.ToSend)) + '</b></td><td data-l="At washing unit"><b>' + fmtNum(Math.max(0, x.AtWash)) + '</b></td><td data-l="Received">' + fmtNum(x.Received) + (x.RecvClosed ? ' <span class="badge ok">Closed</span>' : '') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (!x.RecvClosed && x.ToSend > 0 ? '<button class="btn sm" data-send="' + esc(x.Lot_ID) + '">Send</button>' : '') + (!x.RecvClosed && x.AtWash > 0 ? '<button class="btn sm" data-recv="' + esc(x.Lot_ID) + '">Receive</button>' : '') + '</div></td>' : '') + '</tr>';
@@ -2463,7 +2477,7 @@
     var r = S.wm, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Move pieces received from washing to ironing. Record pass, damage and cancel pieces separately – this is the washing quality result. Total moved cannot exceed the qty received, in as many entries as needed. Washing closes by itself once receiving is closed and everything received has been moved.</div>';
     h += '<h3 class="sec">Lots in washing</h3>';
-    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Received</th><th>Moved</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.lots.length ? '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Received</th><th>Moved</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Ready to move</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.lots.map(function (x) {
         return '<tr>' + lotHead(x) + '<td data-l="Received">' + fmtNum(x.Received) + '</td><td data-l="Moved">' + fmtNum(x.Moved) + '</td><td data-l="Pass">' + fmtNum(x.MovedPass) + '<div class="cellsub">' + pctTxt(x.PassPct) + '</div></td><td data-l="Damage">' + fmtNum(x.MovedDamage) + '<div class="cellsub">' + pctTxt(x.DamagePct) + '</div></td><td data-l="Cancel">' + fmtNum(x.MovedCancel) + '<div class="cellsub">' + pctTxt(x.CancelPct) + '</div></td><td data-l="Ready to move"><b>' + fmtNum(Math.max(0, x.ToMove)) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">Move</button></div></td>' : '') + '</tr>';
@@ -2517,7 +2531,7 @@
         return '<tr>' + lotHead(x) + c.cols.map(function (k) { return '<td data-l="' + k[0] + '">' + (k[2] ? '<b>' : '') + fmtNum(Math.max(0, k[1](x))) + (k[2] ? '</b>' : '') + '</td>'; }).join('') +
           (w ? '<td class="acts-td"><div class="acts">' + (btn ? '<button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">' + c.btn + '</button>' : '') + '</div></td>' : '') + '</tr>';
       }
-      var lhead = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th>' + c.cols.map(function (k) { return '<th>' + k[0] + '</th>'; }).join('') + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
+      var lhead = '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th>' + c.cols.map(function (k) { return '<th>' + k[0] + '</th>'; }).join('') + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
       h += '<h3 class="sec">' + c.lotsTitle + '</h3>';
       h += pend.length ? lhead + pend.map(function (x) { return lrow(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">' + c.emptyLots + '</div>';
       h += '<h3 class="sec">Lot summary – no balance</h3>';
@@ -2597,7 +2611,7 @@
         '<td data-l="Cancel">' + fmtNum(x.QcCancel) + '<div class="cellsub">' + pctTxt(x.CancelPct) + '</div></td><td data-l="Alteration">' + fmtNum(x.QcAlter) + '<div class="cellsub">' + pctTxt(x.AlterPct) + '</div></td>' +
         (w ? '<td class="acts-td"><div class="acts">' + (btn || (x.Ironed > 0) ? '<button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">' + (btn ? 'Add QC' : 'Close / add') + '</button>' : '') + '</div></td>' : '') + '</tr>';
     }
-    var head = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Received</th><th>Ironed</th><th>Checked</th><th>Balance</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
+    var head = '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Received</th><th>Ironed</th><th>Checked</th><th>Balance</th><th>Pass</th><th>Damage</th><th>Cancel</th><th>Alteration</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
     h += '<h3 class="sec">Lots in ironing – QC balance pending</h3>';
     h += open.length ? head + open.map(function (x) { return row(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">No lot has ironed pieces waiting for QC.</div>';
     h += '<h3 class="sec">Lot summary – no balance</h3>';
@@ -2659,7 +2673,7 @@
       return '<tr>' + lotHead(x) + '<td data-l="IQC checked">' + fmtNum(x.QcTotal) + '<div class="cellsub">Pass ' + fmtNum(x.QcPass) + ' · Damage ' + fmtNum(x.QcDamage) + ' · Cancel ' + fmtNum(x.QcCancel) + '</div></td><td data-l="Stickered (pass)">' + fmtNum(x.Stickered) + '</td><td data-l="Sent">' + fmtNum(x.Sent) + '<div class="cellsub">Pass ' + fmtNum(x.SentPass) + ' · Damage ' + fmtNum(x.SentDamage) + ' · Cancel ' + fmtNum(x.SentCancel) + '</div></td><td data-l="Ready to send"><b>' + fmtNum(Math.max(0, x.ToSend)) + '</b></td>' +
         (w ? '<td class="acts-td"><div class="acts">' + (btn ? '<button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">Send</button>' : '') + '</div></td>' : '') + '</tr>';
     }
-    var lhead = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category</th><th>Unit</th><th>Ironing QC checked</th><th>Stickered (pass)</th><th>Sent</th><th>Ready to send</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
+    var lhead = '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Category</th><th>Unit</th><th>Ironing QC checked</th><th>Stickered (pass)</th><th>Sent</th><th>Ready to send</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>';
     h += '<h3 class="sec">Lots in stickering – balance pending</h3>';
     h += pend.length ? lhead + pend.map(function (x) { return lrow(x, true); }).join('') + '</tbody></table>' : '<div class="card empty">No lot has balance to send.</div>';
     h += '<h3 class="sec">Lot summary – no balance</h3>';
@@ -2727,7 +2741,7 @@
       r.rows.map(function (x) {
         var live = x.Lot_Status === 'ACTIVE';
         return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.Washing ? ' <span class="badge">Washing</span>' : '') + (live ? '' : ' <span class="badge warn">' + esc(x.Lot_Status.toLowerCase()) + '</span>') + '</td>' +
-          '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + ' · ' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+          planTd(x, esc(x.Category) + ' · ' + esc(x.Unit)) +
           '<td data-l="Stage">' + (live ? '<b>' + esc(STAGE[x.Stage] || x.Stage || '-') + '</b>' + (x.Days != null ? '<div class="cellsub">' + x.Days + ' day(s)' + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>' : '') : '-') + '</td>' +
           '<td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td><td data-l="Cut">' + fmtNum(x.Cut) + '</td><td data-l="Sewing moved">' + fmtNum(x.SewMoved) + '</td><td data-l="Washing moved">' + (x.Washing ? fmtNum(x.WashMoved) : '-') + '</td>' +
           '<td data-l="Ironing QC pass">' + fmtNum(x.IronPass) + '</td><td data-l="Stickered">' + fmtNum(x.Stickered) + '</td><td data-l="Packed">' + fmtNum(x.PackRecv) + '</td><td data-l="WIP qty"><b>' + fmtNum(x.Wip) + '</b></td>' +
@@ -2856,7 +2870,7 @@
     h += r.rows.length ? '<div class="tw"><table class="cyt"><thead><tr><th>Lot</th><th>Category</th><th>Unit</th><th>Stage</th><th>Fabric issued</th>' + CYC_COLS.map(function (c) { return '<th class="num">' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
         var fl = {}; x.Flags.forEach(function (z) { fl[z.k] = 1; });
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Plan_ID) + (x.Done ? ' · finished' : '') + '</div></td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + '</td><td data-l="Fabric issued">' + esc(dfmt(x.Issued)) + '</td>' +
+        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + (seasonOf(x) ? esc(seasonOf(x)) + ' · ' : '') + esc(x.Plan_ID) + (x.Done ? ' · finished' : '') + '</div></td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + '</td><td data-l="Fabric issued">' + esc(dfmt(x.Issued)) + '</td>' +
           CYC_COLS.map(function (c) { var z = x.S[c[0]], ov = LIM[c[0]] && fl[LIM[c[0]]]; return cyCell(z, ov).replace('<td ', '<td data-l="' + esc(c[1]) + '" '); }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>' : '<div class="card empty">No lots for this selection.</div>';
     $('#cyb').innerHTML = h;
@@ -2909,7 +2923,7 @@
     h += '<h3 class="sec">Oldest lots in WIP' + (r.rowsTotal > r.rows.length ? ' (top ' + r.rows.length + ' of ' + r.rowsTotal + ')' : '') + '</h3>';
     h += r.rows.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Stage</th><th>Days in stage</th><th>WIP pcs</th><th>Lot qty</th><th></th></tr></thead><tbody>' +
       r.rows.map(function (x) {
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.Washing ? ' <span class="badge">Washing</span>' : '') + (x.JobWork ? ' <span class="badge" title="Job work lot, in-house finishing">Job work</span>' : (x.IronOnly ? ' <span class="badge" title="Ironing-only lot">' + esc(srcName(x.Source) || 'Ironing only') + '</span>' : '')) + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.Washing ? ' <span class="badge">Washing</span>' : '') + (x.JobWork ? ' <span class="badge" title="Job work lot, in-house finishing">Job work</span>' : (x.IronOnly ? ' <span class="badge" title="Ironing-only lot">' + esc(srcName(x.Source) || 'Ironing only') + '</span>' : '')) + '</td>' + planTd(x, esc(x.Category) + ' · ' + esc(x.Unit)) +
           '<td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + (x.Since ? '<div class="cellsub">since ' + esc(dfmt(x.Since)) + '</div>' : '') + '</td><td data-l="Days">' + (x.Days == null ? '-' : '<b>' + x.Days + '</b>') + '</td><td data-l="WIP pcs"><b>' + fmtNum(x.Wip) + '</b></td><td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td>' +
           '<td class="acts-td"><div class="acts"><button class="btn sm" data-lot="' + esc(x.Lot_ID) + '">Open</button></div></td></tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No active lots.</div>';
@@ -3200,7 +3214,7 @@
     h += '<div class="hint">Rate = average of the last ' + r.avgDays + ' working days · buffer ' + r.buffer + '% · today ' + esc(dfmt(r.today)) + '</div>';
     h += rows.length ? '<table><thead><tr><th>Plan</th><th>Main cutoff</th><th>Qty</th>' + r.stages.map(function (s) { return '<th>' + esc(s.name) + '</th>'; }).join('') + '<th>Overall</th></tr></thead><tbody>' +
       rows.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Plan"><b>' + esc(x.Plan_ID) + '</b>' + (x.Plan_Type === 'IRON_ONLY' ? ' <span class="badge">Ironing only</span>' : (x.Plan_Type === 'JOB_WORK' ? ' <span class="badge">Job work</span>' : '')) + '<div class="cellsub">' + esc(x.Season) + ' · ' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '">' + planTd(x, esc(x.Category) + ' · ' + esc(x.Unit), x.Plan_Type === 'IRON_ONLY' ? ' <span class="badge">Ironing only</span>' : (x.Plan_Type === 'JOB_WORK' ? ' <span class="badge">Job work</span>' : '')) +
           '<td data-l="Cutoff">' + esc(dfmt(x.Cutoff)) + '<div class="cellsub">' + (x.DaysLeft == null ? '' : (x.DaysLeft < 0 ? Math.abs(x.DaysLeft) + ' day(s) over' : x.DaysLeft + ' day(s) left')) + '</div></td>' +
           '<td data-l="Qty">' + fmtNum(x.Plan_Qty) + '<div class="cellsub">issued ' + fmtNum(x.Issued) + (x.NotIssued ? ' · <span style="color:var(--warn)">not issued ' + fmtNum(x.NotIssued) + '</span>' : '') + '</div></td>' +
           r.stages.map(function (s) {
@@ -3229,7 +3243,7 @@
     h += '<h3 class="sec">Waiting for layering</h3>' + (r.notStarted.lots ? '<div class="hint" style="margin-bottom:8px"><b>' + r.notStarted.lots + '</b> lot(s) / <b>' + fmtNum(r.notStarted.pcs) + '</b> pcs are lying as fabric, layering not started.</div>' : '');
     h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Lot date</th><th>Plan</th><th>Width</th><th>Status</th><th>Balance</th><th>Laid</th><th>To lay</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Lot date">' + esc(x.Lot_Date ? dfmt(x.Lot_Date) : '-') + '</td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b>' + (x.InProgress ? ' <span class="badge warn">Lay in progress</span>' : '') + '</td><td data-l="Lot date">' + esc(x.Lot_Date ? dfmt(x.Lot_Date) : '-') + '</td>' + planTd(x, esc(x.Category) + ' · ' + esc(x.Unit)) +
           '<td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Status">' + (x.Started ? '<span class="badge">Layering started</span>' : '<span class="badge warn">Not started</span><div class="cellsub">Fabric in unit ' + (x.WaitDays == null ? '' : x.WaitDays + ' day(s)') + (x.Since ? ' · since ' + esc(dfmt(x.Since)) : '') + '</div>') + '</td><td data-l="Balance">' + fmtNum(x.Balance) + (x.Adj || x.Moved_Out ? '<div class="cellsub">Lot ' + fmtNum(x.Lot_Qty) + (x.Moved_Out ? ' · moved ' + fmtNum(x.Moved_Out) : '') + (x.Adj ? ' · <span style="color:var(--bad)">adjusted −' + fmtNum(x.Adj) + '</span>' : '') + '</div>' : '') + '</td><td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="To lay"><b>' + fmtNum(x.PendingLay) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button><button class="btn sm ghost" data-adj="' + esc(x.Lot_ID) + '" title="Reduce the lot qty (fabric returned, damage) or cancel the lot">Adjust / Cancel</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot is waiting for layering.</div>';
@@ -3353,9 +3367,9 @@
     var r = S.cut, w = r.canWrite, h = '';
     $('#vh').innerHTML = '<div class="mhelp">Enter the pieces cut for a lot (daily or in one go). Sewing can start as soon as pieces are cut. Cutting may differ from the laid qty; it closes by itself once layering is closed and the cut qty reaches the laid qty. For a short cut, tick <b>cutting complete</b> on the last entry.</div>';
     h += '<h3 class="sec">Waiting for cutting</h3>';
-    h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>Plan</th><th>Laid</th><th>Cut</th><th>To cut</th><th>Layering</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.pending.length ? '<table><thead><tr><th>Lot</th><th>In date</th><th>Plan</th><th>Laid</th><th>Cut</th><th>To cut</th><th>Layering</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.pending.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td><td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td>' + inTd(x) + planTd(x, esc(x.Category) + ' · ' + esc(x.Unit)) +
           '<td data-l="Laid">' + fmtNum(x.Laid) + '</td><td data-l="Cut">' + fmtNum(x.Cut) + '</td><td data-l="To cut"><b>' + fmtNum(x.PendingCut) + '</b></td>' +
           '<td data-l="Layering">' + (x.LayClosed ? '<span class="badge ok">Done</span>' : '<span class="badge warn">Ongoing</span>') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-cut="' + esc(x.Lot_ID) + '">Enter cutting</button></div></td>' : '') + '</tr>';
@@ -3426,7 +3440,7 @@
       rows.map(function (x) {
         var live = x.Lot_Status === 'ACTIVE';
         return '<tr' + (x.Lot_Status === 'CANCELLED' ? ' style="opacity:.6"' : '') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + (x.Origin ? ' · from ' + esc(x.Origin) : '') + '</div></td>' +
-          '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Season) + '</div></td>' +
+          planTd(x) +
           '<td data-l="Category / Unit">' + esc(x.Category) + (x.Sub_Type ? ' <span class="badge">' + esc(x.Sub_Type) + '</span>' : '') + '<div class="cellsub">' + esc(x.Unit) + '</div></td>' +
           '<td data-l="Type">' + esc(x.Lot_Type === 'JOB_WORK' ? 'Job work' : x.Lot_Type === 'IRON_ONLY' ? 'Ironing only' : x.Lot_Type.charAt(0) + x.Lot_Type.slice(1).toLowerCase()) + (x.Lot_Source ? '<div class="cellsub">' + esc(srcName(x.Lot_Source)) + '</div>' : '') + '</td><td data-l="Width">' + esc(x.Fabric_Width || '-') + '</td><td data-l="Lot qty">' + fmtNum(x.Lot_Qty) + '</td><td data-l="Moved out">' + (x.Moved_Out ? fmtNum(x.Moved_Out) : '-') + '</td><td data-l="Adjusted">' + (x.Adj_Qty ? '<span style="color:var(--bad)">' + fmtNum(x.Adj_Qty) + '</span>' + (x.Adj_Reason ? '<div class="cellsub">' + esc(x.Adj_Reason) + '</div>' : '') : '-') + '</td><td data-l="Balance"><b>' + fmtNum(x.Balance) + '</b></td>' +
           '<td data-l="Stage">' + (live ? esc(STAGE[x.Current_Stage] || x.Current_Stage) + (x.Current_Stage === 'LAYERING' && !x.Started ? '<div class="cellsub">Not started</div>' : '') : '-') + '</td>' +
@@ -3462,7 +3476,7 @@
         var live = x.Status === 'ACTIVE';
         return '<tr data-unit="' + esc(x.Unit || '') + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Conversion"><b>' + esc(x.Conversion_ID) + '</b> <span class="badge ' + (x.Type === 'SPLIT' ? 'warn' : '') + '">' + (x.Type === 'SPLIT' ? 'Split' : 'Club') + '</span><div class="cellsub">' + esc(dfmt(x.Date)) + (x.Remarks ? ' · ' + esc(x.Remarks) : '') + '</div></td>' +
           '<td data-l="From">' + x.sources.map(function (l) { return lotLine(l, true); }).join('') + '</td><td data-l="To">' + x.news.map(function (l) { return lotLine(l, false); }).join('') + '</td>' +
-          '<td data-l="Plan">' + esc(x.Plan_ID) + '<div class="cellsub">' + esc(x.Category) + ' · ' + esc(x.Unit) + '</div></td>' +
+          planTd(x, esc(x.Category) + ' · ' + esc(x.Unit)) +
           '<td data-l="Status"><span class="badge ' + (live ? 'ok' : 'off') + '">' + (live ? 'Done' : 'Cancelled') + '</span></td>' +
           (r.canWrite ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? '<button class="btn sm ghost" data-id="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>';
