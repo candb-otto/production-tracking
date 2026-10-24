@@ -749,8 +749,22 @@
       return '<div class="jc ' + cls + '"><h4>' + esc(k.l) + '</h4><div style="font-size:26px;font-weight:700">' + fmtNum(k.v) + '</div><div class="sub">' + esc(k.sub) + '</div></div>';
     }).join('') + '</div>';
   }
+  function dashAlerts(r) {
+    var canGo = function (k) { return S.menu.some(function (m) { return m.key === k; }); };
+    return '<h3 class="sec">Alerts' + (r.alertsTotal > r.alerts.length ? ' (top ' + r.alerts.length + ' of ' + r.alertsTotal + ')' : '') + '</h3>' +
+      (r.alerts.length ? '<table><thead><tr><th>Level</th><th>Alert</th><th>Details</th><th></th></tr></thead><tbody>' + r.alerts.map(function (a) {
+        var sv = DASH_SEV[a.Sev] || ['', ''], g = a.Go || DASH_GO[a.Type] || '';
+        return '<tr><td data-l="Level"><span class="badge ' + sv[1] + '">' + esc(sv[0]) + '</span></td><td data-l="Alert"><b>' + esc(a.Title) + '</b></td><td data-l="Details">' + esc(a.Text) + '</td>' +
+          '<td class="acts-td"><div class="acts">' + (g && canGo(g) ? '<button class="btn sm ghost" type="button" data-go="' + esc(g) + '">Open</button>' : '') + '</div></td></tr>';
+      }).join('') + '</tbody></table>' : '<div class="card empty">No alerts. Everything is on track.</div>');
+  }
   function paintDash() {
     var r = S.dr, f = S.df, h = '', range = r.from === r.to ? dfmt(r.to) : dfmt(r.from) + ' – ' + dfmt(r.to);
+    if (r.simple) {   /* every role except Super Admin / Admin: four cards for their units and departments, then the alerts */
+      $('#dh').innerHTML = '<div style="margin-top:14px">' + kpiRow({ kpi: r.cards }) + '</div>' + dashAlerts(r);
+      $('#dh').onclick = function (e) { var g = e.target.getAttribute && e.target.getAttribute('data-go'); if (g) go(g); };
+      return;
+    }
     var uName = {}, uId = {}; r.unitsList.forEach(function (x) { uName[x.id.toLowerCase()] = x.name; uId[x.name] = x.id; });
     var selNames = (r.unitIds || []).map(function (id) { return uName[id.toLowerCase()]; }).filter(Boolean);
     h += '<form class="fbar" id="df" style="margin-top:14px"><label for="df_f" class="inl">From</label><input type="date" id="df_f" value="' + esc(r.from) + '" max="' + esc(r.today) + '">' +
@@ -780,13 +794,7 @@
           '<td data-l="Late / at risk">' + (s.Late ? '<span class="badge off">' + s.Late + ' late</span> ' : '') + (s.AtRisk ? '<span class="badge warn">' + s.AtRisk + ' at risk</span>' : '') + (!s.Late && !s.AtRisk ? '-' : '') + '</td></tr>';
       }).join('') + '</tbody></table><div class="hint">Each stage: qty (% of planned qty); below = % of fabric issued. Same figures as Season Production Status on the Management Dashboard.</div>' : '<div class="card empty">No active plans in an open season.</div>';
 
-    h += '<h3 class="sec">Alerts' + (r.alertsTotal > r.alerts.length ? ' (top ' + r.alerts.length + ' of ' + r.alertsTotal + ')' : '') + '</h3>';
-    var canGo = function (k) { return S.menu.some(function (m) { return m.key === k; }); };
-    h += r.alerts.length ? '<table><thead><tr><th>Level</th><th>Alert</th><th>Details</th><th></th></tr></thead><tbody>' + r.alerts.map(function (a) {
-      var sv = DASH_SEV[a.Sev] || ['', ''], g = a.Go || DASH_GO[a.Type] || '';
-      return '<tr><td data-l="Level"><span class="badge ' + sv[1] + '">' + esc(sv[0]) + '</span></td><td data-l="Alert"><b>' + esc(a.Title) + '</b></td><td data-l="Details">' + esc(a.Text) + '</td>' +
-        '<td class="acts-td"><div class="acts">' + (g && canGo(g) ? '<button class="btn sm ghost" type="button" data-go="' + esc(g) + '">Open</button>' : '') + '</div></td></tr>';
-    }).join('') + '</tbody></table>' : '<div class="card empty">No alerts. Everything is on track.</div>';
+    h += dashAlerts(r);
 
     $('#dh').innerHTML = h;
     var uSel = selNames.slice();
@@ -975,10 +983,149 @@
   function mgPts(a, b) { return a == null || b == null ? null : Math.round((a - b) * 10) / 10; }
   function mgRange(r) { return dfmt(r.from) + (r.from !== r.to ? ' to ' + dfmt(r.to) : ''); }
   function mgPrev(r) { return dfmt(r.prevFrom) + (r.prevFrom !== r.prevTo ? ' to ' + dfmt(r.prevTo) : ''); }
+  /* ---------- DER: department reports (tabs on the Management Dashboard page) ---------- */
+  var DER_TABS = [['', 'Management Dashboard'], ['CUTTING', 'Cutting Report'], ['SEWING', 'Sewing Report'], ['IRONING', 'Ironing Report']];
+  function mgTabs() {
+    return '<div class="mg-tabs">' + DER_TABS.map(function (t) { return '<button type="button" class="chipb' + ((S.mgTab || '') === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '">' + esc(t[1]) + '</button>'; }).join('') + '</div>';
+  }
+  function wireMgTabs(el) {
+    $('.mg-tabs').onclick = function (e) { var t = e.target.getAttribute && e.target.getAttribute('data-tab'); if (t == null) return; S.mgTab = t; viewMgmt(el); };
+  }
+  function viewDer(el) {
+    var dept = S.mgTab, y = dAgo(1);
+    S.der = S.der || { from: y, to: y, units: [] };
+    el.innerHTML = '<div class="mg">' + mgTabs() +
+      '<div class="mg-top"><div><h2 id="der_t">Department Report</h2><div class="mg-sub" id="der_sub">Day end report</div></div>' +
+      '<div class="mg-act"><button class="btn ghost" id="der_mail">Send email</button><button class="btn" id="der_pdf">Download PDF</button></div></div>' +
+      '<form class="mg-filters card" id="der_f"><div class="mg-f"><label>From<input type="date" id="der_from"></label><label>To<input type="date" id="der_to"></label></div>' +
+      '<div class="mg-q"><button type="button" class="chipb" data-q="yday">Yesterday</button><button type="button" class="chipb" data-q="today">Today</button><button type="button" class="chipb" data-q="7">Last 7 days</button><button type="button" class="chipb" data-q="month">This month</button></div>' +
+      '<div class="mg-f" id="der_uw"></div><div class="mg-f"><button class="btn" type="submit">Show</button></div></form>' +
+      '<div id="derb"><div class="card empty">Loading…</div></div></div>';
+    wireMgTabs(el);
+    $('#der_from').value = S.der.from; $('#der_to').value = S.der.to;
+    var reload = function () { S.der.from = $('#der_from').value || y; S.der.to = $('#der_to').value || S.der.from; if (S.der.from > S.der.to) return toast('From date is after To date', 'bad'); loadDer(dept); };
+    $('#der_f').onsubmit = function (e) { e.preventDefault(); reload(); };
+    $('.mg-q').onclick = function (e) {
+      var q = e.target.getAttribute && e.target.getAttribute('data-q'); if (!q) return;
+      var td = todayStr(), f = dAgo(1), to = dAgo(1);
+      if (q === 'today') { f = to = td; } else if (q === '7') { f = dAgo(6); to = td; } else if (q === 'month') { f = td.slice(0, 8) + '01'; to = td; }
+      $('#der_from').value = f; $('#der_to').value = to; reload();
+    };
+    $('#der_pdf').onclick = derPdf;
+    $('#der_mail').onclick = function () {
+      var r = S.derr; if (!r) return;
+      confirmBox('Send this report by email?', 'The ' + r.title + ' for ' + mgRange(r) + ' is sent to your email address, with a PDF copy.', 'Send email', false).then(function (ok) {
+        if (ok) api('derMail', { dept: dept, from: r.from, to: r.to, unitIds: r.unitIds }).then(function (x) { toast('Report sent to ' + x.to, 'ok'); }).catch(fail);
+      });
+    };
+    loadDer(dept);
+  }
+  var derSeq = 0;
+  function loadDer(dept) {
+    var my = ++derSeq, ids = S.der.ids || [];
+    return api('derReport', { dept: dept, from: S.der.from, to: S.der.to, unitIds: ids }).then(function (r) {
+      if (my !== derSeq || S.page !== 'mgmt' || S.mgTab !== dept) return;
+      S.derr = r; S.der.from = r.from; S.der.to = r.to; $('#der_from').value = r.from; $('#der_to').value = r.to;
+      var names = r.unitsList.map(function (u) { return u.name; }), byName = {}; r.unitsList.forEach(function (u) { byName[u.name] = u.id; });
+      var sel = r.unitsList.filter(function (u) { return ids.map(function (x) { return x.toLowerCase(); }).indexOf(u.id.toLowerCase()) >= 0; }).map(function (u) { return u.name; });
+      $('#der_uw').innerHTML = names.length > 1 ? '<label>Unit</label>' + msHtml('u', 'Unit', names, sel) : '';
+      if ($('#der_uw .ms')) msWire($('#der_uw'), function (k, vals) { S.der.ids = vals.map(function (n) { return byName[n]; }).filter(Boolean); });
+      var td = todayStr();
+      Array.prototype.forEach.call(document.querySelectorAll('.mg-q .chipb'), function (b) {
+        var q = b.getAttribute('data-q'), on = (q === 'yday' && r.from === dAgo(1) && r.to === dAgo(1)) || (q === 'today' && r.from === td && r.to === td) || (q === '7' && r.from === dAgo(6) && r.to === td) || (q === 'month' && r.from === td.slice(0, 8) + '01' && r.to === td);
+        b.classList.toggle('on', on);
+      });
+      $('#der_t').textContent = r.title;
+      $('#der_sub').textContent = mgRange(r) + ' · ' + r.len + ' day(s) · ' + (r.allUnits ? 'All units' : r.units.join(', ')) + (r.len > 1 ? ' · compared with ' + dfmt(r.prevFrom) + ' to ' + dfmt(r.prevTo) : '');
+      paintDer(r);
+    }).catch(function (e) { if (my === derSeq) { var b = $('#derb'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; } });
+  }
+  function derGauge(title, pct, lines) {
+    var v = pct == null ? 0 : Math.max(0, Math.min(100, pct)), cls = pct == null ? '' : (pct >= 90 ? 'ok' : (pct >= 75 ? 'warn' : 'bad'));
+    var R = 78, cx = 100, cy = 92, pt = function (p) { var a = Math.PI * (1 - p / 100); return (cx + R * Math.cos(a)).toFixed(2) + ',' + (cy - R * Math.sin(a)).toFixed(2); };
+    var arc = function (a, b) { return 'M' + pt(a) + ' A' + R + ',' + R + ' 0 0 1 ' + pt(b); };
+    return '<div class="mg-g"><div class="mg-gh">' + esc(title) + '</div><svg class="mg-gv" viewBox="0 0 200 118" role="img" aria-label="' + esc(title) + '"><path d="' + arc(0, 100) + '" class="mg-gt"/>' + (v > 0 ? '<path d="' + arc(0, Math.max(v, 0.5)) + '" class="mg-ga ' + cls + '"/>' : '') +
+      '<text x="100" y="86" text-anchor="middle" class="mg-gn">' + (pct == null ? '–' : pct + '%') + '</text><text x="22" y="115" class="mg-ax" text-anchor="middle">0%</text><text x="178" y="115" class="mg-ax" text-anchor="middle">100%</text></svg>' +
+      lines.map(function (l) { return '<div class="mg-gf">' + l + '</div>'; }).join('') + '</div>';
+  }
+  function paintDer(r) {
+    var multi = r.len > 1, avg = multi ? ' <span class="mg-sm">(avg / day)</span>' : '';
+    var h = '<div class="mg-p1 der">';
+    h += '<div class="mg-ph"><div class="mg-ph1"><div class="mg-pl">' + logoImg(LOGO_CLIENT, 'mg-logo mg-logo-c', 'Company logo') + '</div><div class="mg-pc">Otto Clothing Pvt Ltd</div><div class="mg-pr">' + logoImg(LOGO_POWER, 'mg-logo mg-logo-p', 'Powered by') + '</div></div>' +
+      '<div class="mg-pt">' + esc(r.title) + '</div>' +
+      '<div class="mg-pf"><span><b>Date range:</b> ' + esc(mgRange(r)) + '</span><span>' + esc(r.allUnits ? 'All Units' : 'Unit - ' + r.units.join(', ')) + '</span></div>' +
+      (multi ? '<div class="mg-pcmp">Compared with the previous period ' + esc(dfmt(r.prevFrom) + ' to ' + dfmt(r.prevTo)) + '</div>' : '') + '</div>';
+    /* 1. KPI cards */
+    h += mgSec(1, 'Key Figures', esc(mgRange(r)), '<div class="mg-kpis der4">' + r.kpi.map(function (k) {
+      return '<div class="mg-kpi"><div class="mg-kl">' + esc(k.l) + '</div><div class="mg-kv">' + mgN(k.Qty) + '</div><div class="mg-ks"><b>' + mgN(k.Lots) + '</b> lot(s) · ' + esc(k.sub) + '</div>' +
+        (multi ? '<div class="mg-kc">' + (k.PerDay != null ? '<span class="mg-ks">Avg ' + mgN(k.PerDay) + ' / day · </span>' : '') + (k.Qty || k.Prev ? mgD(k.Chg, k.wip ? 'down' : 'up', false) + ' <span class="mg-ks">vs previous (' + mgN(k.Prev) + ')</span>' : '<span class="mg-d flat">No output</span>') + '</div>' : '') + '</div>';
+    }).join('') + '</div>');
+    /* 2. WIP */
+    var wipT = '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Stage</th><th class="n">Qty</th><th class="n">Lots</th></tr></thead><tbody>' +
+      r.wip.stages.map(function (s) { return '<tr><td data-l="Stage">' + esc(s.l) + '</td><td class="n" data-l="Qty"><b>' + mgN(s.Qty) + '</b></td><td class="n" data-l="Lots">' + mgN(s.Lots) + '</td></tr>'; }).join('') +
+      '<tr class="mg-tot"><td data-l="Stage">Total WIP</td><td class="n" data-l="Qty">' + mgN(r.wip.total) + '</td><td class="n" data-l="Lots">' + mgN(r.wip.lots) + '</td></tr></tbody></table></div>';
+    var n = 2;
+    if (r.dept === 'CUTTING') {
+      var tabT = '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Table</th><th>Unit</th><th class="n">Lays</th><th class="n">Lay qty</th><th class="n">Time used</th><th>Status now</th></tr></thead><tbody>' +
+        (r.tables.length ? r.tables.map(function (t) {
+          return '<tr><td data-l="Table"><b>' + esc(t.Table) + '</b></td><td data-l="Unit">' + esc(t.Unit) + '</td><td class="n" data-l="Lays">' + mgN(t.Lays) + '</td><td class="n" data-l="Lay qty">' + mgN(t.Qty) + '</td><td class="n" data-l="Time used">' + t.Hours + ' h</td>' +
+            '<td data-l="Status">' + (t.Status === 'Free' ? '<span class="mg-chip">Free</span>' : '<span class="mg-chip warn">In progress</span> <span class="mg-sm">lot ' + esc(t.Lot) + '</span>') + '</td></tr>';
+        }).join('') : '<tr><td colspan="6" class="mg-sm">No layering tables in these units.</td></tr>') + '</tbody></table></div>';
+      h += '<div class="mg-two">' + mgSec(n++, 'WIP Details', 'end of ' + esc(dfmt(r.to)), wipT, 'mg-half') + mgSec(n++, 'Layering Table Status', 'lays completed in the range · status now', tabT, 'mg-half') + '</div>';
+    } else {
+      h += mgSec(n++, 'WIP Details', 'end of ' + esc(dfmt(r.to)), wipT);
+    }
+    /* season status (sewing, ironing) */
+    if (r.seasons) {
+      var iron = r.dept === 'IRONING';
+      var pc = function (v) { return '<div class="mg-pb"><i style="width:' + Math.min(100, v || 0) + '%"></i></div><div class="mg-pv">' + mgP(v) + '</div>'; };
+      h += mgSec(n++, 'Season Status', 'active seasons · up to ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Unit</th><th>Season</th><th class="n">Plan</th><th class="n">Fabric issued</th><th class="n">Cut out</th>' + (iron ? '<th class="n">Sewing out</th><th class="n">Ironing out</th>' : '<th class="n">Sewing out</th>') +
+        '<th>vs plan</th><th>vs fabric issued</th><th>vs cut out</th>' + (iron ? '<th>vs sewing out</th>' : '') + '</tr></thead><tbody>' +
+        r.seasons.map(function (s) {
+          return '<tr><td data-l="Unit"><b>' + esc(s.Unit) + '</b></td><td data-l="Season">' + esc(s.Season) + '<div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan">' + mgN(s.Plan) + '</td><td class="n" data-l="Fabric issued">' + mgN(s.Issued) + '</td><td class="n" data-l="Cut out">' + mgN(s.Cut) + '</td>' +
+            (iron ? '<td class="n" data-l="Sewing out">' + mgN(s.Sewn) + '</td><td class="n" data-l="Ironing out"><b>' + mgN(s.Out) + '</b></td>' : '<td class="n" data-l="Sewing out"><b>' + mgN(s.Sewn) + '</b></td>') +
+            '<td data-l="vs plan">' + pc(iron ? s.OutPctPlan : s.SewPctPlan) + '</td><td data-l="vs fabric issued">' + pc(iron ? s.OutPctIss : s.SewPctIss) + '</td><td data-l="vs cut out">' + pc(iron ? s.OutPctCut : s.SewPctCut) + '</td>' + (iron ? '<td data-l="vs sewing out">' + pc(s.OutPctSew) + '</td>' : '') + '</tr>';
+        }).join('') + '</tbody></table></div>' + (iron ? '<div class="mg-note">Ironing out = pieces passed by ironing QC and taken by stickering.</div>' : '') : '<div class="card empty">No active plans in an open season for these units.</div>');
+    }
+    /* gauges */
+    if (r.gauges) {
+      var g = r.gauges, gs = [];
+      if (g.season) {
+        var srows = g.season.rows.length > 1 ? '<table class="mg-t der-gt"><tbody>' + g.season.rows.map(function (s) { return '<tr><td>' + esc(s.Season) + '</td><td class="n">' + mgN(s.Done) + ' / ' + mgN(s.Plan) + '</td><td class="n">' + mgP(s.Pct) + '</td><td class="n"><span class="mg-sm">' + mgP(s.PctIssued) + ' of issued</span></td></tr>'; }).join('') + '</tbody></table>' : '';
+        gs.push(derGauge('Active Season Completion (cut)', g.season.Pct, ['Cut ' + mgN(g.season.Done) + ' of plan ' + mgN(g.season.Plan), '<b>' + mgP(g.season.PctIssued) + '</b> against fabric issued (' + mgN(g.season.Issued) + ')']) .replace(/<\/div>$/, srows + '</div>'));
+      }
+      if (g.attendance) gs.push(derGauge('Attendance Rate', g.attendance.Pct, [g.attendance.entered ? 'Present ' + mgN(g.attendance.Present) + ' · Absent ' + mgN(g.attendance.Absent) + ' of ' + mgN(g.attendance.Strength) + (multi ? ' (avg / day)' : '') : 'No manpower entered for these dates']));
+      if (g.machine) gs.push(derGauge('Machine Utilization', g.machine.Pct, [g.machine.entered ? 'Present ' + mgN(g.machine.Present) + ' on ' + mgN(g.machine.Machines) + ' machines' + (multi ? ' (avg / day)' : '') : 'No manpower or machines entered']));
+      h += mgSec(n++, r.dept === 'CUTTING' ? 'Season Completion & Attendance' : 'Attendance & Machines', esc(mgRange(r)), '<div class="mg-gs der2">' + gs.join('') + '</div>');
+    }
+    /* manpower */
+    var m = r.manpower;
+    h += mgSec(n++, 'Manpower', esc(mgRange(r)) + (multi ? ' · strength / present / OT employees = average per day' : ''), '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Unit</th><th class="n">Strength</th><th class="n">Present</th><th class="n">Absent</th><th class="n">Attendance</th><th class="n">OT employees</th><th class="n">OT man-hours</th><th>OT time</th></tr></thead><tbody>' +
+      m.rows.map(function (u) {
+        return '<tr><td data-l="Unit"><b>' + esc(u.Unit) + '</b></td><td class="n" data-l="Strength">' + (u.Days ? mgN(u.Strength) : '–') + '</td><td class="n" data-l="Present">' + (u.Days ? mgN(u.Present) : '–') + '</td><td class="n" data-l="Absent">' + (u.Days ? mgN(u.Absent) : '–') + '</td>' +
+          '<td class="n" data-l="Attendance">' + mgP(u.AttPct) + '</td><td class="n" data-l="OT employees">' + mgN(u.OtEmp) + '</td><td class="n" data-l="OT man-hours">' + u.OtHrs + '</td><td data-l="OT time"><span class="mg-sm">' + (u.OtSlots.length ? esc(u.OtSlots.join(', ')) : (u.OtHrs ? (multi ? 'several days' : 'OT') : '–')) + '</span></td></tr>';
+      }).join('') + (m.rows.length > 1 ? '<tr class="mg-tot"><td>Total</td><td class="n">' + (m.entered ? mgN(m.total.Strength) : '–') + '</td><td class="n">' + (m.entered ? mgN(m.total.Present) : '–') + '</td><td class="n">' + (m.entered ? mgN(m.total.Absent) : '–') + '</td><td class="n">' + mgP(m.total.AttPct) + '</td><td class="n">' + mgN(m.total.OtEmp) + '</td><td class="n">' + m.total.OtHrs + '</td><td></td></tr>' : '') +
+      '</tbody></table></div>' + (m.entered ? '' : '<div class="mg-note">No ' + esc(m.process.toLowerCase()) + ' manpower entered for these dates.</div>'));
+    h += '<div class="mg-note">Quantities are for the dates shown; cancelled entries are not counted. WIP is at the end of the To date. Generated ' + esc(r.generated) + '.</div>';
+    h += '</div>';
+    $('#derb').innerHTML = h;
+  }
+  function derPdf() {
+    var r = S.derr; if (!r) return;
+    var b = document.body, p1 = $('.mg-p1'), title = document.title;
+    b.classList.add('mg-print'); b.classList.remove('mg-flow');
+    p1.style.zoom = ''; var hgt = p1.scrollHeight, max = 1080;   /* the report is always one A4 page: shrink to fit */
+    if (hgt > max) p1.style.zoom = String(Math.floor(max / hgt * 100) / 100);
+    document.title = r.title + ' ' + mgRange(r) + (r.allUnits ? '' : ' - ' + r.units.join(', '));
+    var done = function () { b.classList.remove('mg-print'); p1.style.zoom = ''; document.title = title; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(function () { window.print(); setTimeout(function () { if (b.classList.contains('mg-print') && !window.matchMedia('print').matches) done(); }, 1500); }, 60);
+  }
   function viewMgmt(el) {
+    if (S.mgTab) return viewDer(el);
     var t = todayStr();
     S.mg = S.mg || { from: t, to: t, unitId: '', seasonId: '' };
-    el.innerHTML = '<div class="mg">' +
+    el.innerHTML = '<div class="mg">' + mgTabs() +
       '<div class="mg-top"><div><h2>Management Dashboard</h2><div class="mg-sub" id="mg_sub">Factory production status</div></div>' +
       '<div class="mg-act"><button class="btn ghost" id="mg_csv">Export CSV</button><button class="btn" id="mg_pdf">Export PDF</button></div></div>' +
       '<div class="mg-filters card"><div class="mg-f"><label>From<input type="date" id="mg_f"></label><label>To<input type="date" id="mg_t"></label></div>' +
@@ -994,7 +1141,7 @@
       if (q === 'yday') { f = to = dAgo(1); } else if (q === '7') { f = dAgo(6); } else if (q === 'month') { f = td.slice(0, 8) + '01'; }
       $('#mg_f').value = f; $('#mg_t').value = to; reload();
     };
-    $('#mg_csv').onclick = mgCsv; $('#mg_pdf').onclick = mgPdf;
+    $('#mg_csv').onclick = mgCsv; $('#mg_pdf').onclick = mgPdf; wireMgTabs(el);
     loadMgmt();
   }
   var mgSeq = 0;
