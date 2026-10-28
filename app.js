@@ -1742,10 +1742,21 @@
         return '<option value="' + esc(o.id) + '"' + (S.pseason === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>';
     }
     $('#ph').innerHTML = '<div class="page-h"><div class="mhelp" style="flex:1;margin:0">Season plans by category and unit. The main cutoff is the <b>sewing</b> cutoff (alerts use the “CUTOFF_ALERT_DAYS” setting); fabric, cutting and ironing &amp; packing cutoffs are optional and used by the Forecast.</div>' + seasonOpts +
-      (canWrite ? '<button class="btn" id="padd">+ Add plan</button>' : '') + '</div>';
+      (canWrite ? '<button class="btn ghost" id="psub" title="Plans of the same Season + Unit + Category need different Sub types">Check Sub types</button> <button class="btn" id="padd">+ Add plan</button>' : '') + '</div>';
     if (canWrite) {
       $('#pf_s').onchange = function () { S.pseason = this.value; loadPlanning(); };
       $('#padd').onclick = function () { planForm(null); };
+      $('#psub').onclick = function () {
+        api('planSubCheck').then(function (r) {
+          if (!r.hasColumn) return openModal('<h3>Sub type check</h3><div class="hint">The Plans sheet has no Sub_Type column yet. Add a column named Sub_Type (row 1) to use Sub types.</div><div class="row"><button class="btn" id="sc_x">Close</button></div>', function () { $('#sc_x').onclick = closeModal; });
+          openModal('<h3>Sub type check</h3><div class="hint">Plans of the same Season + Unit + Category must each have a Sub type, and no two may have the same Sub type. ' +
+            (r.groups.length ? 'These plans need a fix – edit them and enter a Sub type (until then they cannot be saved):' : 'All open plans follow the rule.') + '</div>' +
+            r.groups.map(function (g) {
+              return '<h4 style="margin:12px 0 4px">' + esc(g.Name) + '</h4><table><thead><tr><th>Plan</th><th>Sub type</th><th>Qty</th><th>Problem</th></tr></thead><tbody>' +
+                g.Plans.map(function (x) { return '<tr><td>' + esc(x.Plan_ID) + (x.Status !== 'ACTIVE' ? ' <span class="cellsub">(' + esc(x.Status.toLowerCase()) + ')</span>' : '') + '</td><td>' + esc(x.Sub_Type || '-') + '</td><td>' + fmtNum(x.Qty) + '</td><td>' + (x.Problem ? '<span class="badge warn">' + esc(x.Problem) + '</span>' : '-') + '</td></tr>'; }).join('') + '</tbody></table>';
+            }).join('') + '<div class="row"><button class="btn" id="sc_x">Close</button></div>', function () { $('#sc_x').onclick = closeModal; });
+        }).catch(fail);
+      };
     }
     if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No plans' + (canWrite ? ' yet. Click “+ Add plan”.' : ' for your unit yet.') + '</div>'; return; }
     var total = rows.reduce(function (a, x) { return a + (x.Status === 'ACTIVE' ? x.Plan_Qty : 0); }, 0);
@@ -2123,7 +2134,7 @@
   function jwForm(l) {
     var today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     openModal('<h3>FG inward · lot ' + esc(l.Lot_No) + '</h3><form id="jwf">' +
-      '<div class="hint">' + esc(l.Plan_ID + ' · ' + l.Category + ' · ' + l.Unit) + '<br>Sent out ' + fmtNum(l.Sent) + ' · inward so far ' + fmtNum(l.Inward) + ' · <b>pending ' + fmtNum(l.Pending) + '</b></div>' +
+      '<div class="hint">' + esc(planName(l)) + '<br>Sent out ' + fmtNum(l.Sent) + ' · inward so far ' + fmtNum(l.Inward) + ' · <b>pending ' + fmtNum(l.Pending) + '</b></div>' +
       '<label for="jwf_d">Inward date</label><input id="jwf_d" type="date" max="' + today + '" value="' + today + '">' +
       '<label for="jwf_q">Quantity received (pieces)</label><input id="jwf_q" type="number" min="0" step="1" inputmode="numeric" max="' + l.Pending + '">' +
       '<label class="chk"><input type="checkbox" id="jwf_f"> Last inward – close this lot (nothing more will come)</label>' +
@@ -2193,7 +2204,7 @@
     var today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     openModal('<h3>' + (isNew ? 'Add ironing-only lot' : 'Edit lot ' + esc(x.Lot_No)) + '</h3><form id="ilf">' +
       (isNew ? '<label for="ilf_p">Plan</label><select id="ilf_p"><option value="">Select…</option>' + plans.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.label + ' · to enter ' + fmtNum(p.balance)) + '</option>'; }).join('') + '</select>'
-             : '<label>Plan</label><div class="ro">' + esc(x.Plan_ID + ' · ' + x.Season + ' · ' + x.Category) + '</div>') +
+             : '<label>Plan</label><div class="ro">' + esc(planName(x)) + '</div>') +
       '<label for="ilf_n">ERP lot number</label><input id="ilf_n" maxlength="30" autocomplete="off" value="' + esc(x ? x.Lot_No : '') + '">' +
       '<label for="ilf_s">Source</label><select id="ilf_s"><option value="">Select…</option>' + S.il.sources.map(function (o) { return '<option value="' + esc(o.id) + '"' + (x && x.Lot_Source === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>' +
       '<label for="ilf_d">Received date</label><input id="ilf_d" type="date" max="' + today + '" value="' + esc(x ? x.Received_Date : today) + '">' +
@@ -2268,7 +2279,7 @@
     var today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     /* on edit the plan can be changed (wrong plan picked) – only to a plan of the same kind (job work / normal) */
     var plist = isNew ? plans : plans.filter(function (p) { return !!p.jobWork === !!x.JobWork; });
-    if (!isNew && !plist.some(function (p) { return p.id === x.Plan_ID; })) plist = [{ id: x.Plan_ID, label: x.Plan_ID + ' · ' + x.Season + ' · ' + x.Category + ' · ' + x.Unit, jobWork: x.JobWork }].concat(plist);
+    if (!isNew && !plist.some(function (p) { return p.id === x.Plan_ID; })) plist = [{ id: x.Plan_ID, label: planName(x), jobWork: x.JobWork }].concat(plist);
     var planHtml = '<label for="ff_p">Plan</label><select id="ff_p"><option value="">Select…</option>' + plist.map(function (p) {
       return '<option value="' + esc(p.id) + '"' + (!isNew && p.id === x.Plan_ID ? ' selected' : '') + '>' + esc(p.label) + '</option>'; }).join('') + '</select><div class="hint" id="ff_ph"></div>';
     openModal('<h3>' + (isNew ? 'Issue fabric' : 'Edit issue ' + esc(x.Fabric_Issue_ID)) + '</h3><form id="ff">' + planHtml +
@@ -2327,11 +2338,18 @@
   var STAGE = { LAYERING: 'Layering', CUTTING: 'Cutting', SEWING: 'Sewing', JOBWORK: 'Job work', WASHING: 'Washing', IRONING: 'Ironing', STICKERING: 'Stickering', PACKING: 'Sent to Packing', PACKED: 'Packed' };
   // ---------------- Phase 7: Sewing ----------------
   function pctTxt(n) { return (n || 0) + '%'; }
-  /* plan cell: season name (normal), plan no (small) under it, then any extra info on the same small line */
-  function seasonOf(x) { if (x.Season) return x.Season; var v = S.lm && S.lm.p ? S.lm.p[String(x.Plan_ID || '').toLowerCase()] : null; return v ? v[0] : ''; }
+  /* plan name on every user / process screen (no plan number): Season / Unit / Category / Sub type (sub type only when filled).
+     Taken from the plan index the server sends with the page (_lm), else from the row itself. */
+  function planParts(x) {
+    var v = S.lm && S.lm.p ? S.lm.p[String(x.Plan_ID || '').toLowerCase()] : null;
+    return (v ? [v[0], v[2], v[1], v[3]] : [x.Season, x.Unit, x.Category, x.Sub_Type]).map(function (z) { return z || ''; });
+  }
+  function planName(x) { return planParts(x).filter(Boolean).join(' / '); }
+  function seasonOf(x) { return planParts(x)[0]; }
+  /* plan cell: season (normal), then Unit / Category / Sub type in small type; the plan id stays only as a hidden key for the filters */
   function planTd(x, extra, badge) {
-    var s = seasonOf(x);
-    return '<td data-l="Plan" data-p="' + esc(x.Plan_ID || '') + '">' + (s ? esc(s) : '-') + (badge || '') + '<div class="cellsub">' + esc(x.Plan_ID || '') + (extra ? ' · ' + extra : '') + '</div></td>';
+    var a = planParts(x);
+    return '<td data-l="Plan" data-p="' + esc(x.Plan_ID || '') + '">' + (a[0] ? esc(a[0]) : '-') + (badge || '') + '<div class="cellsub">' + esc(a.slice(1).filter(Boolean).join(' / ')) + '</div></td>';
   }
   /* date the lot's pieces first came into this department (from the stage before) + days since; last in-date when there were several */
   function inTd(x) {
@@ -2913,7 +2931,7 @@
     var SM = { CLOSED: 'Closed', IN_PROGRESS: 'In progress', NOT_STARTED: 'Not started', SKIPPED: 'Not required' };
     h += '<p><button class="btn ghost sm" id="tk_back">&larr; Back to search</button></p>';
     h += '<div class="card"><h3 style="margin:0 0 4px">Lot ' + esc(hd.Lot_No) + (hd.Washing ? ' <span class="badge">Washing</span>' : '') + '</h3>' +
-      '<div class="cellsub">' + esc(hd.Plan_ID) + ' · ' + esc(hd.Season) + ' · ' + esc(hd.Category) + ' · ' + esc(hd.Unit) + ' · ' + esc(ltName(hd.Lot_Type, hd.Lot_Source)) + (hd.Fabric_Width ? ' · width ' + esc(hd.Fabric_Width) : '') + '</div>' +
+      '<div class="cellsub">' + esc(planName(hd)) + ' · ' + esc(ltName(hd.Lot_Type, hd.Lot_Source)) + (hd.Fabric_Width ? ' · width ' + esc(hd.Fabric_Width) : '') + '</div>' +
       '<div style="margin-top:8px">Lot qty <b>' + fmtNum(hd.Lot_Qty) + '</b> · fabric issued <b>' + fmtNum(hd.Issued) + '</b> · WIP now <b>' + fmtNum(hd.Wip) + '</b> · status <b>' + esc(hd.Lot_Status.toLowerCase()) + '</b>' +
       (hd.Lot_Status === 'ACTIVE' ? ' · now in <b>' + esc(STAGE[hd.Stage] || hd.Stage) + '</b>' + (hd.Days != null ? ' for <b>' + hd.Days + '</b> day(s)' : '') : '') + '</div></div>';
     h += '<h3 class="sec">Journey</h3><div class="jr">' + d.stages.map(function (s) {
@@ -3017,7 +3035,7 @@
     h += r.rows.length ? '<div class="tw"><table class="cyt"><thead><tr><th>Lot</th><th>Category</th><th>Unit</th><th>Stage</th><th>Fabric issued</th>' + CYC_COLS.map(function (c) { return '<th class="num">' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       r.rows.map(function (x) {
         var fl = {}; x.Flags.forEach(function (z) { fl[z.k] = 1; });
-        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + (seasonOf(x) ? esc(seasonOf(x)) + ' · ' : '') + esc(x.Plan_ID) + (x.Done ? ' · finished' : '') + '</div></td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + '</td><td data-l="Fabric issued">' + esc(dfmt(x.Issued)) + '</td>' +
+        return '<tr><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(planName(x)) + (x.Done ? ' · finished' : '') + '</div></td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Unit">' + esc(x.Unit) + '</td><td data-l="Stage">' + esc(STAGE[x.Stage] || x.Stage) + '</td><td data-l="Fabric issued">' + esc(dfmt(x.Issued)) + '</td>' +
           CYC_COLS.map(function (c) { var z = x.S[c[0]], ov = LIM[c[0]] && fl[LIM[c[0]]]; return cyCell(z, ov).replace('<td ', '<td data-l="' + esc(c[1]) + '" '); }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>' : '<div class="card empty">No lots for this selection.</div>';
     $('#cyb').innerHTML = h;
@@ -3303,7 +3321,7 @@
     else {
       h += '<table><thead><tr><th>Lot</th><th>Category</th><th>SMV</th>' + d.Slots.map(function (s) { return '<th' + (s.ot ? ' style="color:var(--warn)"' : '') + '>' + esc(s.label) + (s.ot ? ' (OT)' : '') + '</th>'; }).join('') + '<th>Output</th><th>Produced min</th></tr></thead><tbody>' +
         d.Lots.map(function (l) {
-          return '<tr><td data-l="Lot"><b>' + esc(l.Lot_No) + '</b><div class="cellsub">' + esc(l.Plan_ID) + '</div></td><td data-l="Category">' + esc(l.Category) + '</td><td data-l="SMV">' + (l.Smv > 0 ? l.Smv : '<span class="badge warn">No SMV</span>') + '</td>' +
+          return '<tr><td data-l="Lot"><b>' + esc(l.Lot_No) + '</b><div class="cellsub">' + esc(planName(l)) + '</div></td><td data-l="Category">' + esc(l.Category) + '</td><td data-l="SMV">' + (l.Smv > 0 ? l.Smv : '<span class="badge warn">No SMV</span>') + '</td>' +
             d.Slots.map(function (s) { return '<td data-l="' + esc(s.label) + '">' + (l.Slots[s.h] ? fmtNum(l.Slots[s.h]) : '-') + '</td>'; }).join('') + '<td data-l="Output"><b>' + fmtNum(l.Out) + '</b></td><td data-l="Produced min">' + fmtNum(l.ProdMin) + '</td></tr>';
         }).join('') + '<tr><td colspan="3"><b>Total</b></td>' + d.Slots.map(function (s) { return '<td data-l="' + esc(s.label) + '"><b>' + fmtNum(s.Out) + '</b></td>'; }).join('') + '<td data-l="Output"><b>' + fmtNum(t.Out) + '</b></td><td data-l="Produced min"><b>' + fmtNum(t.ProdMin) + '</b></td></tr></tbody></table>';
       h += '<div class="hint">Produced minutes = output × SMV of the lot\'s category. Normal hours: ' + fmtNum(t.NormalOut) + ' pcs / ' + fmtNum(t.NormalProdMin) + ' min · OT hours: ' + fmtNum(t.OtOut) + ' pcs / ' + fmtNum(t.OtProdMin) + ' min.</div>';
@@ -3358,7 +3376,7 @@
     h += '<div class="chips"><button class="chipb' + (f.status ? '' : ' on') + '" data-fs="">All (' + r.rows.length + ')</button>' +
       ['LATE', 'AT_RISK', 'NO_RATE', 'ON_TRACK', 'NO_CUTOFF', 'DONE', 'NO_LOTS'].map(function (k) { return '<button class="chipb' + (f.status === k ? ' on' : '') + '" data-fs="' + k + '">' + FCS[k][0] + ' (' + r.counts[k] + ')</button>'; }).join('') + '</div>';
     var rows = r.rows.filter(function (x) { return !f.status || x.Status === f.status; });
-    h += '<div class="hint">Rate = average of the last ' + r.avgDays + ' working days · buffer ' + r.buffer + '% · today ' + esc(dfmt(r.today)) + '</div>';
+    h += '<div class="hint">Rate = average of the last ' + r.avgDays + ' working days (sewing: weighted, the latest day counts most; days without output are skipped) · buffer ' + r.buffer + '% · today ' + esc(dfmt(r.today)) + '</div>';
     h += rows.length ? '<table><thead><tr><th>Plan</th><th>Main cutoff</th><th>Qty</th>' + r.stages.map(function (s) { return '<th>' + esc(s.name) + '</th>'; }).join('') + '<th>Overall</th></tr></thead><tbody>' +
       rows.map(function (x) {
         return '<tr data-unit="' + esc(x.Unit || '') + '">' + planTd(x, esc(x.Category) + ' · ' + esc(x.Unit), x.Plan_Type === 'IRON_ONLY' ? ' <span class="badge">Ironing only</span>' : (x.Plan_Type === 'JOB_WORK' ? ' <span class="badge">Job work</span>' : '')) +
@@ -3683,7 +3701,7 @@
     if (lots.length < 2) { toast('Need at least two lots with pieces left to club.', 'bad'); return; }
     openModal('<h3>Club lots</h3><form id="cl"><label>Lots to club (same plan, same washing) and pieces to take from each</label><input type="search" id="cl_q" class="ss-q" placeholder="Search lot no, plan, category…" autocomplete="off" aria-label="Search lots"><div class="hint ss-n" id="cl_qn"></div><div id="cl_list" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">' +
       lots.map(function (l, i) {
-        return '<div class="cl-row" style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub">' + esc(l.Plan_ID) + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
+        return '<div class="cl-row" style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub">' + esc(planName(l)) + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
           '<input class="cl-q" data-i="' + i + '" type="number" min="1" max="' + l.qty + '" step="1" inputmode="numeric" value="' + l.qty + '" style="width:90px;height:38px" disabled></div>';
       }).join('') + '</div>' +
       '<div class="hint" id="cl_sum" style="margin-top:8px">Select two or more lots.</div>' +
