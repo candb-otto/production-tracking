@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit }[page];
+    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit, simulate: viewSimulate }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
@@ -209,7 +209,7 @@
   }
 
   /* ---------- Revision D: search / date filter / CSV on transaction tables ---------- */
-  var TF_SKIP = { password: 1, reports: 1, alertset: 1, mgmt: 1 };
+  var TF_SKIP = { password: 1, reports: 1, alertset: 1, mgmt: 1, simulate: 1 };
   var TXN_PAGES = { fabric: 1, lots: 1, conversion: 1, layering: 1, cutting: 1, sewout: 1, sewqc: 1, sewfinal: 1, washing: 1, washmove: 1, ironing: 1, ironqc: 1, stickering: 1, packsend: 1, packrecv: 1, ironlots: 1, jwinward: 1 };   /* every other page gets search / filters / CSV on its tables */
   function dIso(t) {
     var m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(t || ''); if (!m) return '';
@@ -3360,9 +3360,233 @@
   }
   /* ---- Phase 13: forecast ---- */
   var FCS = { ON_TRACK: ['On track', 'ok'], AT_RISK: ['At risk', 'warn'], LATE: ['Late', 'off'], DONE: ['Done', 'ok'], NO_RATE: ['No output rate', 'warn'], NO_CUTOFF: ['No cutoff set', ''], NO_LOTS: ['No lots yet', ''], NA: ['Not applicable', ''] };
+
+  /* ---------- Forecast Simulation (what-if, nothing is saved) ---------- */
+  function fcTabs(cur) {
+    var has = function (k) { return S.menu.some(function (m) { return m.key === k; }); };
+    if (!has('forecast') || !has('simulate')) return '';
+    return '<div class="mg-tabs" style="margin:0">' + [['forecast', 'Forecast'], ['simulate', 'Simulation']].map(function (t) {
+      return '<button type="button" class="chipb' + (t[0] === cur ? ' on' : '') + '" data-fc="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>';
+  }
+  document.addEventListener('click', function (e) { var t = e.target && e.target.getAttribute && e.target.getAttribute('data-fc'); if (t && t !== S.page) go(t); });
+  var SIM_SRC = { actual: 'Actual (weighted average)', out: 'Output override', tail: 'Tailors lever' };
+  function simDiff(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }   /* b - a in days */
+  function viewSimulate(el) {
+    S.sim = S.sim || { f: { seasonId: '', categoryId: '', unitIds: [] }, v: [{ unit: '' }, { unit: '' }, { unit: '' }] };
+    el.innerHTML = '<div class="page-h"><h2>Forecast Simulation</h2>' + fcTabs('simulate') + '</div>' +
+      '<div class="mhelp">What-if only – nothing is saved; reloading the page resets the order. Each vertical runs its own simulation: <b>rank 1 gets the whole daily output</b>; when it finishes, the next plan starts on the next working day. ' +
+      'Rate = weighted average of the last working days with sewing output (latest day counts most). Remaining = plan qty − sewn qty. Drag a plan (or use ▲ ▼ ⤒) to change its rank.</div>' +
+      '<form class="fbar" id="sm_f"></form><div id="sm_b"><div class="card empty">Loading…</div></div>';
+    loadSim();
+  }
+  function loadSim() {
+    var f = S.sim.f;
+    return api('simData', { seasonId: f.seasonId, categoryId: f.categoryId, unitIds: f.unitIds }).then(function (r) {
+      if (S.page !== 'simulate') return;
+      S.simr = r;
+      var byId = {}; r.units.forEach(function (u) { byId[u.id] = u; });
+      S.sim.v.forEach(function (v) { if (v.unit && !byId[v.unit]) v.unit = ''; simReset(v); });
+      paintSimFilters(); paintSim();
+    }).catch(function (e) { var b = $('#sm_b'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
+  }
+  function paintSimFilters() {
+    var r = S.simr, f = S.sim.f, opt = function (list, val, all) { return '<option value="">' + all + '</option>' + list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === val ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join(''); };
+    var names = r.unitsList.map(function (u) { return u.name; }), byName = {}; r.unitsList.forEach(function (u) { byName[u.name] = u.id; });
+    var sel = r.unitsList.filter(function (u) { return f.unitIds.indexOf(u.id) >= 0; }).map(function (u) { return u.name; });
+    $('#sm_f').innerHTML = (names.length > 1 ? msHtml('u', 'Unit', names, sel) : '') +
+      '<select id="sm_s" aria-label="Season">' + opt(r.seasons, f.seasonId, 'All open seasons') + '</select>' +
+      '<select id="sm_c" aria-label="Category">' + opt(r.categories, f.categoryId, 'All categories') + '</select><button class="btn" type="submit">Show</button>';
+    var uSel = f.unitIds.slice();
+    if ($('#sm_f .ms')) msWire($('#sm_f'), function (k, vals) { uSel = vals.map(function (n) { return byName[n]; }).filter(Boolean); });
+    $('#sm_f').onsubmit = function (e) { e.preventDefault(); f.unitIds = uSel; f.seasonId = $('#sm_s').value; f.categoryId = $('#sm_c').value; loadSim(); };
+  }
+  /* the plans, base rate, tailors and working days of a vertical */
+  function simBase(v) {
+    var r = S.simr, us = v.unit ? r.units.filter(function (u) { return u.id === v.unit; }) : r.units;
+    var rate = us.reduce(function (t, u) { return t + u.rate; }, 0), tail = us.reduce(function (t, u) { return t + u.tailors; }, 0);
+    return { units: us, plans: r.plans.filter(function (p) { return !v.unit || p.Unit_ID === v.unit; }), rate: rate, tailors: Math.round(tail * 10) / 10,
+             perTailor: tail > 0 ? rate / tail : 0, wd: v.unit && us[0] ? us[0].workDays : r.allWorkDays,
+             name: v.unit && us[0] ? us[0].name : 'All units' + (S.sim.f.unitIds.length ? ' (selected)' : '') };
+  }
+  function simReset(v) { var b = simBase(v); v.order = b.plans.map(function (p) { return p.Plan_ID; }); v.mode = 'actual'; v.out = ''; v.tail = ''; v.sug = null; }
+  function simRate(v, b) {
+    if (v.mode === 'out' && Number(v.out) > 0) return { rate: Number(v.out), src: 'out' };
+    if (v.mode === 'tail' && Number(v.tail) > 0 && b.perTailor > 0) return { rate: Math.round(b.perTailor * Number(v.tail)), src: 'tail' };
+    return { rate: b.rate, src: 'actual' };
+  }
+  /* priority sequence: each plan in turn gets the whole daily output */
+  function simRun(order, b, rate) {
+    var by = {}; b.plans.forEach(function (p) { by[p.Plan_ID] = p; });
+    var cur = 0, rows = [];
+    order.forEach(function (id, i) {
+      var p = by[id]; if (!p) return;
+      var need = rate > 0 ? Math.ceil(p.Remaining / rate) : null, st = '', fin = '';
+      if (need != null && cur + need - 1 < b.wd.length) { st = b.wd[cur]; fin = b.wd[cur + need - 1]; cur += need; }
+      else if (need != null) cur = b.wd.length;   /* runs past the planning calendar: every later plan does too */
+      var early = fin && p.Cutoff ? simDiff(fin, p.Cutoff) : null, gain = fin && p.Current ? simDiff(fin, p.Current) : null;
+      rows.push({ p: p, rank: rows.length + 1, need: need, start: st, finish: fin, early: early, gain: gain, ok: fin && p.Cutoff ? early >= 0 : null });
+    });
+    var onTime = rows.filter(function (x) { return x.ok === true; }).length, late = rows.reduce(function (t, x) { return t + (x.early != null && x.early < 0 ? -x.early : 0); }, 0);
+    return { rows: rows, onTime: onTime, withCut: rows.filter(function (x) { return x.ok != null; }).length, late: late };
+  }
+  function simSuggest(v, b, rate) {
+    var wdTo = function (cut) { if (!cut) return 1e9; var n = 0; for (var i = 0; i < b.wd.length && b.wd[i] <= cut; i++) n++; return n; };
+    var need = function (p) { return rate > 0 ? Math.ceil(p.Remaining / rate) : 0; };
+    var c = function (p) { return p.Cutoff || '9999-12-31'; };
+    var rules = [
+      ['cutoff', 'Earliest cutoff first', function (a, z) { return c(a).localeCompare(c(z)); }],
+      ['slack', 'Least slack first', function (a, z) { return (wdTo(a.Cutoff) - need(a)) - (wdTo(z.Cutoff) - need(z)) || c(a).localeCompare(c(z)); }],
+      ['short', 'Shortest plan first', function (a, z) { return need(a) - need(z) || c(a).localeCompare(c(z)); }]
+    ];
+    var res = rules.map(function (r) { var order = b.plans.slice().sort(r[2]).map(function (p) { return p.Plan_ID; }), s = simRun(order, b, rate); return { k: r[0], l: r[1], order: order, onTime: s.onTime, withCut: s.withCut, late: s.late }; });
+    var best = res.slice().sort(function (a, z) { return z.onTime - a.onTime || a.late - z.late; })[0];
+    res.forEach(function (x) { x.best = x === best; });
+    return res;
+  }
+  function simGantt(run, b) {
+    var rows = run.rows; if (!rows.length) return '';
+    var d0 = b.wd[0], last = d0;
+    rows.forEach(function (x) { [x.finish, x.p.Cutoff, x.p.Current].forEach(function (d) { if (d && d > last) last = d; }); });
+    var span = Math.max(7, simDiff(d0, last) + 2), W = 360, L = 22, R = 6, RH = 16, T = 18, H = T + rows.length * RH + 4;
+    var X = function (d) { return L + (W - L - R) * simDiff(d0, d) / span; };
+    var s = '<svg class="sim-g" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Simulated timeline">';
+    var step = Math.max(1, Math.ceil(span / 5));
+    for (var k = 0; k <= span; k += step) { var dd = new Date(Date.parse(d0 + 'T00:00:00Z') + k * 864e5).toISOString().slice(0, 10), x = X(dd);
+      s += '<line x1="' + x + '" x2="' + x + '" y1="' + (T - 4) + '" y2="' + H + '" class="sim-gl"/><text x="' + x + '" y="10" class="sim-gt" text-anchor="middle">' + esc(dfmt(dd).slice(0, 6)) + '</text>'; }
+    rows.forEach(function (r, i) {
+      var y = T + i * RH;
+      s += '<text x="2" y="' + (y + 11) + '" class="sim-gt">' + r.rank + '</text>';
+      if (r.p.Current) s += '<rect x="' + X(d0) + '" y="' + (y + 9) + '" width="' + Math.max(1, X(r.p.Current) + (W - L - R) / span - X(d0)) + '" height="3" class="sim-gc"><title>Current forecast ' + esc(dfmt(r.p.Current)) + '</title></rect>';
+      if (r.finish) s += '<rect x="' + X(r.start) + '" y="' + (y + 2) + '" width="' + Math.max(2, X(r.finish) + (W - L - R) / span - X(r.start)) + '" height="7" rx="2" class="sim-gb ' + (r.ok === false ? 'bad' : 'ok') + '"><title>' + esc(r.p.Label + ': ' + dfmt(r.start) + ' to ' + dfmt(r.finish)) + '</title></rect>';
+      if (r.p.Cutoff) { var cx = X(r.p.Cutoff) + (W - L - R) / span; s += '<line x1="' + cx + '" x2="' + cx + '" y1="' + y + '" y2="' + (y + RH - 2) + '" class="sim-gx"><title>Sewing cutoff ' + esc(dfmt(r.p.Cutoff)) + '</title></line>'; }
+    });
+    return s + '</svg><div class="sim-lg"><i class="ok"></i>simulated (on time) <i class="bad"></i>late <i class="cur"></i>current forecast <i class="cx"></i>sewing cutoff</div>';
+  }
+  function simInsights(run, rt) {
+    var src = SIM_SRC[rt.src];
+    return run.rows.map(function (r, i) {
+      var head = 'Rank ' + r.rank + ' – ' + r.p.Label + ': ';
+      if (r.need == null) return head + fmtNum(r.p.Remaining) + ' pcs remaining – no output rate, the date cannot be worked out.';
+      if (!r.finish) return head + fmtNum(r.p.Remaining) + ' pcs remaining at ' + fmtNum(rt.rate) + ' pcs/day = ' + r.need + ' working days – beyond the planning calendar.';
+      return head + (i ? 'starts ' + dfmt(r.start) + ' (next working day after Rank ' + (r.rank - 1) + ' finishes). ' : '') +
+        fmtNum(r.p.Remaining) + ' pcs remaining at ' + fmtNum(rt.rate) + ' pcs/day = ' + r.need + ' working day' + (r.need === 1 ? '' : 's') + '. Runs ' + dfmt(r.start) + ' to ' + dfmt(r.finish) + '. ' +
+        (r.p.Cutoff ? 'Cutoff ' + dfmt(r.p.Cutoff) + ' → ' + (r.early === 0 ? 'on the cutoff day' : Math.abs(r.early) + ' day' + (Math.abs(r.early) === 1 ? '' : 's') + (r.early > 0 ? ' early' : ' late')) + '.' : 'No sewing cutoff.') +
+        (r.gain != null && r.gain !== 0 ? ' ' + Math.abs(r.gain) + ' day' + (Math.abs(r.gain) === 1 ? '' : 's') + (r.gain > 0 ? ' earlier' : ' later') + ' than the current forecast (' + dfmt(r.p.Current) + ').' : '');
+    });
+  }
+  function simRows(run, rt) {
+    return [['Rank', 'Season', 'Unit', 'Category', 'Sub type', 'Remaining qty', 'Daily rate used', 'Rate source', 'Days needed', 'Simulated start', 'Simulated finish', 'Current forecast finish', 'Sewing cutoff', 'Days early/late', 'Status']].concat(
+      run.rows.map(function (r) {
+        return [r.rank, r.p.Season, r.p.Unit, r.p.Category, r.p.Sub_Type, r.p.Remaining, rt.rate, SIM_SRC[rt.src], r.need == null ? '' : r.need, r.start ? dfmt(r.start) : '', r.finish ? dfmt(r.finish) : '', r.p.Current ? dfmt(r.p.Current) : '',
+          r.p.Cutoff ? dfmt(r.p.Cutoff) : '', r.early == null ? '' : r.early, r.ok == null ? (r.finish ? 'No cutoff' : 'No date') : (r.ok ? 'On or before cutoff' : 'After cutoff')];
+      }));
+  }
+  function paintSim() {
+    var r = S.simr, h = '';
+    if (!r.plans.length) { $('#sm_b').innerHTML = '<div class="card empty">No open plans with sewing left for these filters.</div>'; return; }
+    h += '<div class="sim-vs">' + S.sim.v.map(function (v, i) { return '<div class="sim-v card" data-v="' + i + '"></div>'; }).join('') + '</div>';
+    $('#sm_b').innerHTML = h;
+    S.sim.v.forEach(function (v, i) { paintSimV(i); });
+  }
+  function paintSimV(i) {
+    var v = S.sim.v[i], r = S.simr, b = simBase(v), rt = simRate(v, b), run = simRun(v.order, b, rt.rate), box = document.querySelector('.sim-v[data-v="' + i + '"]'); if (!box) return;
+    var h = '<div class="sim-h"><b>Vertical ' + (i + 1) + '</b><select data-a="unit" aria-label="Unit"><option value="">All units</option>' + r.units.map(function (u) { return '<option value="' + esc(u.id) + '"' + (u.id === v.unit ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('') + '</select></div>';
+    h += '<div class="sim-rate">Rate <b>' + fmtNum(rt.rate) + '</b> pcs/day <span class="cellsub">' + esc(SIM_SRC[rt.src]) + (rt.src === 'actual' ? ' · ' + b.units.map(function (u) { return u.name + ' ' + fmtNum(u.rate) + ' (' + u.rateDays + ' d)'; }).join(', ') : '') + '</span></div>';
+    h += '<div class="sim-lv">' +
+      '<label class="chk"><input type="radio" name="lv' + i + '" value="actual"' + (v.mode === 'actual' ? ' checked' : '') + '> Actual</label>' +
+      '<label class="chk"><input type="radio" name="lv' + i + '" value="out"' + (v.mode === 'out' ? ' checked' : '') + '> Output/day <input type="number" min="1" step="1" data-a="out" value="' + esc(v.out) + '" placeholder="' + b.rate + '"></label>' +
+      '<label class="chk"><input type="radio" name="lv' + i + '" value="tail"' + (v.mode === 'tail' ? ' checked' : '') + '> Tailors <input type="number" min="1" step="1" data-a="tail" value="' + esc(v.tail) + '" placeholder="' + b.tailors + '"></label>' +
+      '<button type="button" class="btn sm ghost" data-a="reset">Reset</button></div>' +
+      (v.mode === 'tail' ? '<div class="cellsub" style="white-space:normal">Output per tailor = ' + fmtNum(b.rate) + ' ÷ ' + b.tailors + ' tailors = ' + (Math.round(b.perTailor * 10) / 10) + ' pcs. Straight-line assumption: new tailors are taken as equally productive at once.' + (b.perTailor ? '' : ' <b>No tailors entered in Daily Manpower for those days.</b>') + '</div>' : '');
+    h += '<div class="sim-sum"><span class="badge ' + (run.onTime === run.withCut ? 'ok' : 'warn') + '">' + run.onTime + ' of ' + run.withCut + ' on time</span> <span class="cellsub">' + run.late + ' day(s) late in total · ' + run.rows.length + ' plan(s)</span>' +
+      '<span class="sim-act"><button type="button" class="btn sm" data-a="sug">Suggest order</button><button type="button" class="btn sm ghost" data-a="csv">CSV</button><button type="button" class="btn sm ghost" data-a="xlsx">XLSX</button></span></div>';
+    if (v.sug) h += '<div class="sim-sug">' + v.sug.map(function (s, k) { return '<div class="' + (s.best ? 'best' : '') + '"><b>' + esc(s.l) + '</b>' + (s.best ? ' <span class="badge ok">Best</span>' : '') + '<div class="cellsub">' + s.onTime + ' of ' + s.withCut + ' on time · ' + s.late + ' day(s) late</div><button type="button" class="btn sm ghost" data-a="apply" data-k="' + k + '">Apply</button></div>'; }).join('') + '</div>';
+    h += '<div class="sim-list">' + run.rows.map(function (x, k) {
+      var cls = x.ok === false ? 'bad' : (x.ok ? 'ok' : '');
+      return '<div class="sim-row" draggable="true" data-k="' + k + '"><span class="sim-rk">' + x.rank + '</span><div class="sim-rb"><div class="sim-rl">' + esc(x.p.Label) + '</div>' +
+        '<div class="cellsub">' + fmtNum(x.p.Remaining) + ' pcs · ' + (x.need == null ? 'no rate' : x.need + ' d') + ' · cutoff ' + esc(x.p.Cutoff ? dfmt(x.p.Cutoff) : '–') + '</div>' +
+        '<div class="sim-rd"><span class="badge ' + cls + '">' + (x.finish ? dfmt(x.finish) : '–') + '</span> ' +
+        (x.early != null ? '<span class="cellsub">' + (x.early >= 0 ? x.early + ' d early' : -x.early + ' d late') + '</span> ' : '') +
+        '<span class="cellsub">now ' + (x.p.Current ? dfmt(x.p.Current) : '–') + (x.gain ? ' · ' + Math.abs(x.gain) + ' d ' + (x.gain > 0 ? 'earlier' : 'later') : '') + '</span></div></div>' +
+        '<div class="sim-mv"><button type="button" class="btn sm ghost" data-a="top" data-k="' + k + '" title="Move to top">⤒</button><button type="button" class="btn sm ghost" data-a="up" data-k="' + k + '" title="Up">▲</button><button type="button" class="btn sm ghost" data-a="down" data-k="' + k + '" title="Down">▼</button></div></div>';
+    }).join('') + '</div>';
+    h += '<div class="sim-gw">' + simGantt(run, b) + '</div>';
+    h += '<details class="sim-ins"' + (v.insOpen ? ' open' : '') + '><summary>Insights (' + run.rows.length + ' plans)</summary><div class="cellsub" style="white-space:normal">Rate source: <b>' + esc(SIM_SRC[rt.src]) + '</b> – ' + fmtNum(rt.rate) + ' pcs/day' + (rt.src === 'actual' ? ' (weighted average of the last ' + r.avgDays + ' working days with output)' : '') + '.</div><ol>' +
+      simInsights(run, rt).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol></details>';
+    box.innerHTML = h;
+    box.querySelector('.sim-ins').addEventListener('toggle', function () { v.insOpen = this.open; });
+    var move = function (from, to) { if (to < 0 || to >= v.order.length || from === to) return; var id = v.order.splice(from, 1)[0]; v.order.splice(to, 0, id); paintSimV(i); };
+    box.onclick = function (e) {
+      var a = e.target.getAttribute && e.target.getAttribute('data-a'), k = Number(e.target.getAttribute && e.target.getAttribute('data-k'));
+      if (a === 'top') move(k, 0); else if (a === 'up') move(k, k - 1); else if (a === 'down') move(k, k + 1);
+      else if (a === 'reset') { v.mode = 'actual'; v.out = ''; v.tail = ''; paintSimV(i); }
+      else if (a === 'sug') { v.sug = v.sug ? null : simSuggest(v, b, rt.rate); paintSimV(i); }
+      else if (a === 'apply') { v.order = v.sug[k].order.slice(); paintSimV(i); }
+      else if (a === 'csv' || a === 'xlsx') {
+        var nm = 'Simulation_' + b.name.replace(/[^A-Za-z0-9]+/g, '_') + '_' + dfmt(todayStr()), rows = simRows(run, rt);
+        if (a === 'csv') csvDownload(nm + '.csv', rows); else xlsxDownload(nm + '.xlsx', rows, 'Simulation');
+      }
+    };
+    box.onchange = function (e) {
+      var t = e.target, a = t.getAttribute('data-a');
+      if (a === 'unit') { v.unit = t.value; simReset(v); paintSimV(i); return; }
+      if (t.name === 'lv' + i) { v.mode = t.value; paintSimV(i); }
+    };
+    box.oninput = function (e) {
+      var t = e.target, a = t.getAttribute('data-a'); if (a !== 'out' && a !== 'tail') return;
+      v[a] = t.value; v.mode = a;
+      clearTimeout(v._t); v._t = setTimeout(function () { var pos = t.selectionStart; paintSimV(i); var n = document.querySelector('.sim-v[data-v="' + i + '"] input[data-a="' + a + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) { /* number input */ } } }, 250);
+    };
+    var dragK = null;
+    Array.prototype.forEach.call(box.querySelectorAll('.sim-row'), function (row) {
+      row.addEventListener('dragstart', function (e) { dragK = Number(row.getAttribute('data-k')); row.classList.add('drag'); try { e.dataTransfer.setData('text/plain', String(dragK)); e.dataTransfer.effectAllowed = 'move'; } catch (er) { /* old browser */ } });
+      row.addEventListener('dragend', function () { row.classList.remove('drag'); });
+      row.addEventListener('dragover', function (e) { e.preventDefault(); row.classList.add('over'); });
+      row.addEventListener('dragleave', function () { row.classList.remove('over'); });
+      row.addEventListener('drop', function (e) { e.preventDefault(); var to = Number(row.getAttribute('data-k')); if (dragK != null) move(dragK, to); dragK = null; });
+    });
+  }
+  /* a small .xlsx writer (one sheet, text and numbers) – no library needed */
+  function xlsxDownload(name, rows, sheet) {
+    var x = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var col = function (n) { var s = ''; n++; while (n) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+    var sh = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      rows.map(function (r, ri) { return '<row r="' + (ri + 1) + '">' + r.map(function (v, ci) { var ref = col(ci) + (ri + 1);
+        return typeof v === 'number' && isFinite(v) ? '<c r="' + ref + '"><v>' + v + '</v></c>' : '<c r="' + ref + '" t="inlineStr"' + (ri === 0 ? ' s="1"' : '') + '><is><t>' + x(v == null ? '' : v) + '</t></is></c>'; }).join('') + '</row>'; }).join('') + '</sheetData></worksheet>';
+    var files = {
+      '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+      '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+      'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + x(sheet || 'Sheet1') + '" sheetId="1" r:id="rId1"/></sheets></workbook>',
+      'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+      'xl/styles.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>',
+      'xl/worksheets/sheet1.xml': sh
+    };
+    try {
+      var blob = new Blob([zipStore(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch (e) { toast('Download is not supported in this browser', 'err'); }
+  }
+  /* zip without compression (enough for small xlsx files) */
+  function zipStore(files) {
+    var enc = new TextEncoder(), crcT = [];
+    for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcT[n] = c >>> 0; }
+    var crc = function (b) { var c = 0xFFFFFFFF; for (var i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    var parts = [], central = [], off = 0;
+    var u16 = function (v) { return [v & 255, (v >>> 8) & 255]; }, u32 = function (v) { return [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]; };
+    Object.keys(files).forEach(function (nm) {
+      var name = enc.encode(nm), data = enc.encode(files[nm]), cr = crc(data);
+      var head = [].concat([0x50, 0x4b, 3, 4], u16(20), u16(0), u16(0), u16(0), u16(0x21), u32(cr), u32(data.length), u32(data.length), u16(name.length), u16(0));
+      parts.push(new Uint8Array(head), name, data);
+      central.push(new Uint8Array([].concat([0x50, 0x4b, 1, 2], u16(20), u16(20), u16(0), u16(0), u16(0), u16(0x21), u32(cr), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(off))), name);
+      off += head.length + name.length + data.length;
+    });
+    var csize = central.reduce(function (t, p) { return t + p.length; }, 0);
+    var end = new Uint8Array([].concat([0x50, 0x4b, 5, 6], u16(0), u16(0), u16(Object.keys(files).length), u16(Object.keys(files).length), u32(csize), u32(off), u16(0)));
+    return new Blob(parts.concat(central, [end]));
+  }
   function viewForecast(el) {
     S.fc = S.fc || { unitId: '', seasonId: '', status: '' };
-    el.innerHTML = '<div class="page-h"><h2>Forecast</h2></div><div id="vh"></div><div id="vb"></div>';
+    el.innerHTML = '<div class="page-h"><h2>Forecast</h2>' + fcTabs('forecast') + '</div><div id="vh"></div><div id="vb"></div>';
     $('#vh').innerHTML = '<div class="mhelp">For each active plan and stage (each stage has its own cutoff date on the plan: fabric, cutting, <b>sewing</b>, ironing &amp; packing): <b>to go</b> = fabric not yet issued for the Fabric stage, otherwise the pieces of the plan\'s <b>issued lots</b> that still have to pass the stage. <b>Rate</b> = the unit\'s average output over the last working days (Settings → FORECAST_AVG_DAYS). Only <b>sewing</b> is in equivalent pieces (category factor); every other stage is normal pieces. <b>Finish</b> = the working day the remaining pieces would be done, queued behind plans of the same unit with an earlier cutoff for that stage. <b>Late</b> = days needed are more than the working days left until that stage\'s cutoff; <b>At risk</b> = inside the safety buffer (Settings → AT_RISK_BUFFER_PCT).</div>';
     loadForecast();
   }
