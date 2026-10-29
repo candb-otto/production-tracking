@@ -266,11 +266,29 @@
     });
   }
   document.addEventListener('click', function () { Array.prototype.forEach.call(document.querySelectorAll('.ms-p'), function (x) { x.hidden = true; }); });
+  /* transaction pages: a table that lists lots but has no Plan / Season column gets Season and Sub type columns right after the Lot column
+     (from the lot number, via the plan index the server sends with the page). Part of the table, so filters and Export CSV include them. */
+  function lotSeasonCols(tb) {
+    if (!TXN_PAGES[S.page] || !S.lm || !S.lm.l || !tb.tHead || !tb.tBodies[0]) return;
+    var hr = tb.tHead.rows[0], hs = Array.prototype.map.call(hr.cells, function (c) { return c.textContent.trim(); }), li = -1;
+    hs.forEach(function (t, i) { if (li < 0 && /^lot\b/i.test(t) && !/^lots\b/i.test(t)) li = i; });
+    if (li < 0 || hs.some(function (t) { return /^(plan|season|sub type)\b/i.test(t); })) return;
+    var mk = function (tag, txt, lab) { var c = document.createElement(tag); c.textContent = txt; if (lab) c.setAttribute('data-l', lab); return c; };
+    var ref = hr.cells[li + 1] || null;
+    hr.insertBefore(mk('th', 'Season'), ref); hr.insertBefore(mk('th', 'Sub type'), ref);
+    Array.prototype.forEach.call(tb.tBodies[0].rows, function (tr) {
+      var c = tr.cells[li]; if (!c || tr.cells.length < hs.length) return;
+      var n = c.querySelector('b') || c.firstChild, t = n ? n.textContent.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+      var v = S.lm.l[t] || (t ? S.lm.l[t.split(/[\s·]+/)[0]] : null) || null, r2 = tr.cells[li + 1] || null;
+      tr.insertBefore(mk('td', v ? v[0] : '–', 'Season'), r2); tr.insertBefore(mk('td', v && v[3] ? v[3] : '–', 'Sub type'), r2);
+    });
+  }
   function enhanceTables() {
     if (TF_SKIP[S.page]) return;
     var root = document.getElementById('view'); if (!root) return;
     Array.prototype.forEach.call(root.querySelectorAll('table'), function (tb, ti) {
       if (tb.getAttribute('data-tf') || tb.closest('.modal') || tb.classList.contains('nocsv')) return;
+      lotSeasonCols(tb);
       var ths = Array.prototype.map.call(tb.tHead ? tb.tHead.rows[0].cells : [], function (c) { return c.textContent.trim(); });
       var body = tb.tBodies[0]; if (!body || !body.rows.length) return;
       if (S.page === 'dashboard' && body.rows.length < 4) return;
@@ -3637,16 +3655,16 @@
           (w ? '<td class="acts-td"><div class="acts"><button class="btn sm" data-start="' + esc(x.Lot_ID) + '">Start lay</button><button class="btn sm ghost" data-adj="' + esc(x.Lot_ID) + '" title="Reduce the lot qty (fabric returned, damage) or cancel the lot">Adjust / Cancel</button></div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lot is waiting for layering.</div>';
     h += '<h3 class="sec">Lays in progress</h3>';
-    h += r.active.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Category</th><th>Table</th><th>Started</th><th>Running for</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.active.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Season</th><th>Sub type</th><th>Category</th><th>Table</th><th>Started</th><th>Running for</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.active.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Layer_Name ? '<div class="cellsub">' + esc(x.Layer_Name) + '</div>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '<div class="cellsub">To lay ' + fmtNum(x.PendingLay) + '</div></td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Layer_Name ? '<div class="cellsub">' + esc(x.Layer_Name) + '</div>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '<div class="cellsub">To lay ' + fmtNum(x.PendingLay) + '</div></td><td data-l="Season">' + esc(planParts(x)[0] || '–') + '</td><td data-l="Sub type">' + esc(planParts(x)[3] || '–') + '</td>' +
           '<td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '<div class="cellsub">' + esc(x.Unit) + '</div></td><td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Running for">' + esc(x.Duration || '-') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canAct ? '<button class="btn sm" data-done="' + esc(x._id) + '">Complete</button><button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lay in progress.</div>';
     h += '<h3 class="sec">Completed lays</h3>';
-    h += r.done.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Category</th><th>Table</th><th>Started</th><th>Completed</th><th>Duration</th><th>Qty</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    h += r.done.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Unit</th><th>Season</th><th>Sub type</th><th>Category</th><th>Table</th><th>Started</th><th>Completed</th><th>Duration</th><th>Qty</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.done.map(function (x) {
-        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
+        return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Unit">' + esc(planParts(x)[1] || x.Unit) + '</td><td data-l="Season">' + esc(planParts(x)[0] || '–') + '</td><td data-l="Sub type">' + esc(planParts(x)[3] || '–') + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
           '<td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Completed">' + esc(dfmt(x.End_At)) + '</td><td data-l="Duration"><b>' + esc(x.Duration || '-') + '</b></td><td data-l="Qty"><b>' + fmtNum(x.Lay_Qty) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-le="' + esc(x._id) + '">Edit</button>' : '') + (x.canCancel ? '<button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">Nothing completed yet.</div>';
