@@ -1520,9 +1520,34 @@
 
   /* ---------- masters (generic, driven by server definitions) ---------- */
   function viewSettings(el) { viewMasters(el, true); }
+  /* Settings page: working hours and breaks (lay duration counts only working time) */
+  function loadWorkHours() {
+    var box = $('#wh'); if (!box) return;
+    api('workHoursInfo', {}, true).then(function (r) { paintWorkHours(r); }).catch(function (e) { box.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
+  }
+  function paintWorkHours(r) {
+    var box = $('#wh'); if (!box) return;
+    var brs = (r.breaks || []).slice(); if (!brs.length) brs.push({ from: '', to: '' });
+    var row = function (b, i) { return '<div class="wh-b" data-i="' + i + '"><input type="time" class="wh-f" value="' + esc(b.from) + '" aria-label="Break ' + (i + 1) + ' from"> to <input type="time" class="wh-t" value="' + esc(b.to) + '" aria-label="Break ' + (i + 1) + ' to"> <button type="button" class="btn sm ghost wh-x" title="Remove break">✕</button></div>'; };
+    box.innerHTML = '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">Working hours &amp; breaks</h3>' +
+      '<div class="hint">Lay duration counts only working time: the minutes between the start and end of the working day, on working days (weekly off and Calendar holidays skipped), minus the breaks. ' +
+      (r.set ? 'Working time per day: <b>' + Math.floor(r.minutes / 60) + ' h ' + (r.minutes % 60) + ' min</b>.' : '<b>Not set yet</b> – until you save, lay duration is clock time.') + '</div>' +
+      '<form id="whf"><div style="display:flex;gap:12px;flex-wrap:wrap"><div><label for="wh_s">Working day starts</label><input type="time" id="wh_s" value="' + esc(r.start || '09:00') + '"></div>' +
+      '<div><label for="wh_e">Working day ends</label><input type="time" id="wh_e" value="' + esc(r.end || '18:00') + '"></div></div>' +
+      '<label>Breaks</label><div id="wh_bl">' + brs.map(row).join('') + '</div><button type="button" class="btn sm ghost" id="wh_add">+ Add break</button>' +
+      '<div class="row"><button class="btn" type="submit">Save working hours</button></div></form></div>';
+    $('#wh_add').onclick = function () { var n = $('#wh_bl').children.length; $('#wh_bl').insertAdjacentHTML('beforeend', row({ from: '', to: '' }, n)); };
+    $('#wh_bl').onclick = function (e) { if (e.target.classList.contains('wh-x')) e.target.parentNode.remove(); };
+    $('#whf').onsubmit = function (e) {
+      e.preventDefault();
+      var breaks = Array.prototype.map.call(document.querySelectorAll('#wh_bl .wh-b'), function (d) { return { from: d.querySelector('.wh-f').value, to: d.querySelector('.wh-t').value }; });
+      api('workHoursSave', { start: $('#wh_s').value, end: $('#wh_e').value, breaks: breaks }).then(function (x) { toast('Working hours saved', 'ok'); paintWorkHours(x); loadMaster(); }).catch(fail);
+    };
+  }
   function viewMasters(el, settings) {
     S.mset = !!settings;
-    el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div><div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
+    el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div>' + (settings ? '<div id="wh"></div>' : '') + '<div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
+    if (settings) loadWorkHours();
     api(settings ? 'settingsDefs' : 'masterDefs').then(function (defs) {
       if (!settings && canSeasons()) defs = [{ name: SEASONS_TAB, label: 'Seasons' }].concat(defs);
       S.mdefs = defs;
@@ -1778,10 +1803,10 @@
     }
     if (!rows.length) { $('#pb').innerHTML = '<div class="card empty">No plans' + (canWrite ? ' yet. Click “+ Add plan”.' : ' for your unit yet.') + '</div>'; return; }
     var total = rows.reduce(function (a, x) { return a + (x.Status === 'ACTIVE' ? x.Plan_Qty : 0); }, 0);
-    $('#pb').innerHTML = '<table><thead><tr><th>Plan</th><th>Season</th><th>Section</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    $('#pb').innerHTML = '<table><thead><tr>' + (r.rankCol ? '<th>Rank</th>' : '') + '<th>Plan</th><th>Season</th><th>Section</th><th>Category</th><th>Sub type</th><th>Unit</th><th>Qty (pcs)</th><th>Issued (order)</th><th>Cutoffs</th><th>Status</th>' + (canWrite ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (p) {
         var act = p.Status === 'ACTIVE';
-        return '<tr data-unit="' + esc(p.Unit) + '"><td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
+        return '<tr data-unit="' + esc(p.Unit) + '">' + (r.rankCol ? '<td data-l="Rank" style="white-space:nowrap">' + (p.Rank ? '<span class="sim-rk" style="display:inline-grid">' + p.Rank + '</span>' : '<span class="cellsub">–</span>') + (p.canRank ? ' <button class="btn sm ghost" type="button" data-rank="' + esc(p._id) + '" title="Change the priority rank">Change</button>' : '') + '</td>' : '') + '<td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
           '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Section">' + esc(p.Section) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + '</td>' +
           '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Ironing', p.Iron_Cutoff_Date], ['Packing recv.', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
@@ -1793,6 +1818,15 @@
             '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table><div class="hint" style="margin-top:8px">Active plan quantity shown: <b>' + fmtNum(total) + '</b> pcs</div>';
     $('#pb').onclick = function (e) {
+      var rk = e.target.getAttribute && e.target.getAttribute('data-rank');
+      if (rk) {
+        var px = rows.filter(function (x) { return x._id === rk; })[0], n = rows.filter(function (x) { return x.Unit_ID === px.Unit_ID && x.SeasonOpen && x.Status !== 'CANCELLED'; }).length;
+        return openModal('<h3>Priority rank – ' + esc(px.Plan_ID) + '</h3><div class="hint">' + esc(px.Season + ' / ' + px.Unit + ' / ' + px.Category + (px.Sub_Type ? ' / ' + px.Sub_Type : '')) + '<br>Now rank <b>' + (px.Rank || '–') + '</b> of ' + n + ' open plans in ' + esc(px.Unit) + '. The other plans move up / down.</div>' +
+          '<form id="rkf"><label for="rk_n">New rank (1 = first)</label><input id="rk_n" type="number" min="1" max="' + n + '" step="1" value="' + (px.Rank || '') + '"><div class="row"><button type="button" class="btn ghost" id="rk_x">Cancel</button><button class="btn" type="submit">Save</button></div></form>', function () {
+          $('#rk_x').onclick = closeModal;
+          $('#rkf').onsubmit = function (ev) { ev.preventDefault(); api('planRank', { id: px._id, rank: $('#rk_n').value }).then(function (x) { closeModal(); toast('Rank ' + x.rank + ' saved', 'ok'); loadPlanning(); }).catch(fail); };
+        });
+      }
       var a = e.target.getAttribute && e.target.getAttribute('data-a'); if (!a) return;
       var id = e.target.getAttribute('data-id');
       var p = rows.filter(function (x) { return x._id === id; })[0]; if (!p) return;
@@ -1852,6 +1886,7 @@
       (isNew ? '<label for="pf_t">Plan type</label><select id="pf_t"><option value="">Normal (fabric to packing)</option><option value="IRON_ONLY">Ironing-only (job worker / warehouse re-ironing)</option></select><div class="hint" id="pf_th" hidden>Lots of this plan are added in <b>Ironing-only Lots</b> and only go through ironing, stickering and packing.</div>' : (curIO ? '<div class="hint"><span class="badge">Ironing only</span> The plan type cannot be changed.</div>' : '')) +
       '<div id="pf_g1"><label for="pf_o">Season order (optional)</label><select id="pf_o"></select></div>' +
       '<label for="pf_c">Category</label>' + sel('pf_c', refs.Category_ID, p ? p.Category_ID : (pre.categoryId || ''), 'Select…') +
+      (S.plans.rankCol ? '<label for="pf_rank">Priority rank (optional)</label><input id="pf_rank" type="number" min="1" step="1" inputmode="numeric" placeholder="1 = first in the unit" value="' + esc(p && p.Rank ? p.Rank : '') + '"><div class="hint">Order of the open plans of this unit (1 = sew first). Leave blank to put a new plan last. The other plans of the unit move up / down.</div>' : '') +
       (S.plans.subTypeCol ? '<label for="pf_sub">Sub type (optional)</label><input id="pf_sub" maxlength="40" autocomplete="off" placeholder="e.g. Customer B" value="' + esc(p ? p.Sub_Type : '') + '"><div class="hint">Use it when the same category is planned twice in a unit, for example one plan for one customer and another plan for the rest.</div>' : '') +
       '<label for="pf_u">Unit</label>' + sel('pf_u', refs.Unit_ID, p ? p.Unit_ID : '', 'Select…') +
       '<label for="pf_q">Plan quantity (pcs)</label><input id="pf_q" type="number" min="1" step="1" inputmode="numeric" value="' + esc(p ? p.Plan_Qty : (pre.qty || '')) + '">' +
@@ -1931,6 +1966,7 @@
           ev.preventDefault();
           var f = { Category_ID: $('#pf_c').value, Unit_ID: $('#pf_u').value, Plan_Qty: $('#pf_q').value, Cutoff_Date: $('#pf_d').value, Fabric_Cutoff_Date: $('#pf_fc').value, Cutting_Cutoff_Date: $('#pf_cc').value, IronPack_Cutoff_Date: $('#pf_ic').value, Iron_Cutoff_Date: $('#pf_irc') ? $('#pf_irc').value : '', Remarks: $('#pf_r').value, Order_ID: $('#pf_o').value };
           if ($('#pf_sub')) f.Sub_Type = $('#pf_sub').value;
+          if ($('#pf_rank') && $('#pf_rank').value !== String(p && p.Rank ? p.Rank : '')) f.Priority_Rank = $('#pf_rank').value;
           if (seEdit) f.Season_ID = $('#pf_se').value;
           if (isNew) f.Plan_Type = $('#pf_t').value;
           if (isIO()) { f.Cutoff_Date = ''; f.Fabric_Cutoff_Date = ''; f.Cutting_Cutoff_Date = ''; f.Order_ID = ''; }
@@ -3390,11 +3426,14 @@
   var SIM_SRC = { actual: 'Actual (weighted average)', out: 'Output override', tail: 'Tailors lever' };
   function simDiff(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }   /* b - a in days */
   function viewSimulate(el) {
-    S.sim = S.sim || { f: { seasonId: '', categoryId: '', unitIds: [] }, v: [{ unit: '' }, { unit: '' }, { unit: '' }] };
+    S.sim = S.sim || { f: { seasonId: '', categoryId: '', unitIds: [] }, mode: 'seq', v: [{ unit: '' }, { unit: '' }] };
+    if (S.sim.v.length > 2) S.sim.v = S.sim.v.slice(0, 2);
     el.innerHTML = '<div class="page-h"><h2>Forecast Simulation</h2>' + fcTabs('simulate') + '</div>' +
-      '<div class="mhelp">What-if only – nothing is saved; reloading the page resets the order. Each vertical runs its own simulation: <b>rank 1 gets the whole daily output</b>; when it finishes, the next plan starts on the next working day. ' +
+      '<div class="mhelp">What-if only – nothing is saved; reloading the page resets the order and shares. The starting order is the <b>Priority rank</b> set in Planning. ' +
+      '<b>Sequential</b>: rank 1 gets the whole daily output; when it finishes, the next plan starts on the next working day. ' +
+      '<b>Side by side</b>: all plans run at the same time and share the daily output by the % you set; when a plan finishes, its share moves to the plans still running. ' +
       'Rate = weighted average of the last working days with sewing output (latest day counts most). Remaining = plan qty − sewn qty. Drag a plan (or use ▲ ▼ ⤒) to change its rank.</div>' +
-      '<form class="fbar" id="sm_f"></form><div id="sm_b"><div class="card empty">Loading…</div></div>';
+      '<form class="fbar" id="sm_f"></form><div class="sim-mode" id="sm_m"></div><div id="sm_b"><div class="card empty">Loading…</div></div>';
     loadSim();
   }
   function loadSim() {
@@ -3404,7 +3443,7 @@
       S.simr = r;
       var byId = {}; r.units.forEach(function (u) { byId[u.id] = u; });
       S.sim.v.forEach(function (v) { if (v.unit && !byId[v.unit]) v.unit = ''; simReset(v); });
-      paintSimFilters(); paintSim();
+      paintSimFilters(); paintSimMode(); paintSim();
     }).catch(function (e) { var b = $('#sm_b'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
   }
   function paintSimFilters() {
@@ -3418,6 +3457,13 @@
     if ($('#sm_f .ms')) msWire($('#sm_f'), function (k, vals) { uSel = vals.map(function (n) { return byName[n]; }).filter(Boolean); });
     $('#sm_f').onsubmit = function (e) { e.preventDefault(); f.unitIds = uSel; f.seasonId = $('#sm_s').value; f.categoryId = $('#sm_c').value; loadSim(); };
   }
+  /* Sequential / Side by side toggle (applies to both verticals) */
+  function paintSimMode() {
+    var m = S.sim.mode, box = $('#sm_m'); if (!box) return;
+    box.innerHTML = '<span class="cellsub">Mode</span><div class="seg" role="group" aria-label="Simulation mode">' + [['seq', 'Sequential'], ['sbs', 'Side by side']].map(function (t) {
+      return '<button type="button" class="' + (t[0] === m ? 'on' : '') + '" data-m="' + t[0] + '" aria-pressed="' + (t[0] === m) + '">' + t[1] + '</button>'; }).join('') + '</div>';
+    box.onclick = function (e) { var k = e.target.getAttribute && e.target.getAttribute('data-m'); if (!k || k === S.sim.mode) return; S.sim.mode = k; S.sim.v.forEach(function (v) { v.sug = null; }); paintSimMode(); paintSim(); };
+  }
   /* the plans, base rate, tailors and working days of a vertical */
   function simBase(v) {
     var r = S.simr, us = v.unit ? r.units.filter(function (u) { return u.id === v.unit; }) : r.units;
@@ -3426,7 +3472,10 @@
              perTailor: tail > 0 ? rate / tail : 0, wd: v.unit && us[0] ? us[0].workDays : r.allWorkDays,
              name: v.unit && us[0] ? us[0].name : 'All units' + (S.sim.f.unitIds.length ? ' (selected)' : '') };
   }
-  function simReset(v) { var b = simBase(v); v.order = b.plans.map(function (p) { return p.Plan_ID; }); v.mode = 'actual'; v.out = ''; v.tail = ''; v.sug = null; }
+  function simReset(v) { var b = simBase(v); v.order = b.plans.map(function (p) { return p.Plan_ID; }); v.mode = 'actual'; v.out = ''; v.tail = ''; v.sug = null; simEqual(v); }
+  /* equal shares in whole %, the first plans take the odd percent */
+  function simEqual(v) { var n = v.order.length, base = n ? Math.floor(100 / n) : 0, odd = n ? 100 - base * n : 0; v.share = {}; v.order.forEach(function (id, i) { v.share[id] = base + (i < odd ? 1 : 0); }); }
+  function simShare(v, id) { var x = v.share && v.share[id]; return x == null || x === '' || isNaN(Number(x)) ? 0 : Math.max(0, Number(x)); }
   function simRate(v, b) {
     if (v.mode === 'out' && Number(v.out) > 0) return { rate: Number(v.out), src: 'out' };
     if (v.mode === 'tail' && Number(v.tail) > 0 && b.perTailor > 0) return { rate: Math.round(b.perTailor * Number(v.tail)), src: 'tail' };
@@ -3447,6 +3496,31 @@
     var onTime = rows.filter(function (x) { return x.ok === true; }).length, late = rows.reduce(function (t, x) { return t + (x.early != null && x.early < 0 ? -x.early : 0); }, 0);
     return { rows: rows, onTime: onTime, withCut: rows.filter(function (x) { return x.ok != null; }).length, late: late };
   }
+  /* side by side: every day each running plan gets rate × its share ÷ the shares still running; a finished plan's share moves to the others.
+     Plans with 0 % wait until the plans with a share finish, then split the output equally. */
+  function simRunSbs(order, b, rate, v) {
+    var by = {}; b.plans.forEach(function (p) { by[p.Plan_ID] = p; });
+    var ps = order.map(function (id) { return by[id]; }).filter(Boolean).map(function (p) { return { p: p, left: p.Remaining, sh: simShare(v, p.Plan_ID), start: '', finish: '', di: -1, si: -1 }; });
+    var total = ps.reduce(function (t, x) { return t + x.sh; }, 0), d, open = ps.length;
+    if (rate > 0) for (d = 0; d < b.wd.length && open; d++) {
+      var pool = rate, guard = 0;
+      while (pool > 1e-9 && guard++ < 50) {
+        var run = ps.filter(function (x) { return x.left > 1e-9 && x.sh > 0; });
+        if (!run.length) run = ps.filter(function (x) { return x.left > 1e-9; }).map(function (x) { return { x: x, w: 1 }; }); else run = run.map(function (x) { return { x: x, w: x.sh }; });
+        if (!run.length) break;
+        var W = run.reduce(function (t, y) { return t + y.w; }, 0), used = 0;
+        run.forEach(function (y) { var x = y.x, give = Math.min(x.left, pool * y.w / W); if (give <= 0) return; if (x.si < 0) { x.si = d; x.start = b.wd[d]; } x.left -= give; used += give; if (x.left <= 1e-9) { x.left = 0; x.di = d; x.finish = b.wd[d]; open--; } });
+        pool -= used; if (used <= 1e-9) break;
+      }
+    }
+    var rows = ps.map(function (x, i) {
+      var p = x.p, fin = x.finish, early = fin && p.Cutoff ? simDiff(fin, p.Cutoff) : null, gain = fin && p.Current ? simDiff(fin, p.Current) : null;
+      return { p: p, rank: i + 1, share: x.sh, pct: total > 0 ? Math.round(x.sh / total * 1000) / 10 : 0, need: rate > 0 ? (fin ? x.di - x.si + 1 : null) : null, start: x.start, finish: fin, early: early, gain: gain, ok: fin && p.Cutoff ? early >= 0 : null, beyond: rate > 0 && !fin };
+    });
+    var onTime = rows.filter(function (x) { return x.ok === true; }).length, late = rows.reduce(function (t, x) { return t + (x.early != null && x.early < 0 ? -x.early : 0); }, 0);
+    return { rows: rows, onTime: onTime, withCut: rows.filter(function (x) { return x.ok != null; }).length, late: late, total: total };
+  }
+  function simLast(run) { return run.rows.reduce(function (m, x) { return x.finish && x.finish > m ? x.finish : m; }, ''); }
   function simSuggest(v, b, rate) {
     var wdTo = function (cut) { if (!cut) return 1e9; var n = 0; for (var i = 0; i < b.wd.length && b.wd[i] <= cut; i++) n++; return n; };
     var need = function (p) { return rate > 0 ? Math.ceil(p.Remaining / rate) : 0; };
@@ -3461,10 +3535,10 @@
     res.forEach(function (x) { x.best = x === best; });
     return res;
   }
-  function simGantt(run, b) {
+  function simGantt(run, b, cmp) {
     var rows = run.rows; if (!rows.length) return '';
-    var d0 = b.wd[0], last = d0;
-    rows.forEach(function (x) { [x.finish, x.p.Cutoff, x.p.Current].forEach(function (d) { if (d && d > last) last = d; }); });
+    var d0 = b.wd[0], last = d0, cm = {}; if (cmp) cmp.rows.forEach(function (x) { cm[x.p.Plan_ID] = x; });
+    rows.forEach(function (x) { var q = cm[x.p.Plan_ID]; [x.finish, x.p.Cutoff, cmp ? (q && q.finish) : x.p.Current].forEach(function (d) { if (d && d > last) last = d; }); });
     var span = Math.max(7, simDiff(d0, last) + 2), W = 360, L = 22, R = 6, RH = 16, T = 18, H = T + rows.length * RH + 4;
     var X = function (d) { return L + (W - L - R) * simDiff(d0, d) / span; };
     var s = '<svg class="sim-g" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Simulated timeline">';
@@ -3474,11 +3548,13 @@
     rows.forEach(function (r, i) {
       var y = T + i * RH;
       s += '<text x="2" y="' + (y + 11) + '" class="sim-gt">' + r.rank + '</text>';
-      if (r.p.Current) s += '<rect x="' + X(d0) + '" y="' + (y + 9) + '" width="' + Math.max(1, X(r.p.Current) + (W - L - R) / span - X(d0)) + '" height="3" class="sim-gc"><title>Current forecast ' + esc(dfmt(r.p.Current)) + '</title></rect>';
+      var q = cm[r.p.Plan_ID];
+      if (cmp) { if (q && q.finish) s += '<rect x="' + X(q.start) + '" y="' + (y + 10) + '" width="' + Math.max(2, X(q.finish) + (W - L - R) / span - X(q.start)) + '" height="3" class="sim-gq"><title>Sequential ' + esc(dfmt(q.start) + ' to ' + dfmt(q.finish)) + '</title></rect>'; }
+      else if (r.p.Current) s += '<rect x="' + X(d0) + '" y="' + (y + 9) + '" width="' + Math.max(1, X(r.p.Current) + (W - L - R) / span - X(d0)) + '" height="3" class="sim-gc"><title>Current forecast ' + esc(dfmt(r.p.Current)) + '</title></rect>';
       if (r.finish) s += '<rect x="' + X(r.start) + '" y="' + (y + 2) + '" width="' + Math.max(2, X(r.finish) + (W - L - R) / span - X(r.start)) + '" height="7" rx="2" class="sim-gb ' + (r.ok === false ? 'bad' : 'ok') + '"><title>' + esc(r.p.Label + ': ' + dfmt(r.start) + ' to ' + dfmt(r.finish)) + '</title></rect>';
       if (r.p.Cutoff) { var cx = X(r.p.Cutoff) + (W - L - R) / span; s += '<line x1="' + cx + '" x2="' + cx + '" y1="' + y + '" y2="' + (y + RH - 2) + '" class="sim-gx"><title>Sewing cutoff ' + esc(dfmt(r.p.Cutoff)) + '</title></line>'; }
     });
-    return s + '</svg><div class="sim-lg"><i class="ok"></i>simulated (on time) <i class="bad"></i>late <i class="cur"></i>current forecast <i class="cx"></i>sewing cutoff</div>';
+    return s + '</svg><div class="sim-lg"><i class="ok"></i>' + (cmp ? 'side by side' : 'simulated') + ' (on time) <i class="bad"></i>late ' + (cmp ? '<i class="seq"></i>sequential' : '<i class="cur"></i>current forecast') + ' <i class="cx"></i>sewing cutoff</div>';
   }
   function simInsights(run, rt) {
     var src = SIM_SRC[rt.src];
@@ -3492,10 +3568,34 @@
         (r.gain != null && r.gain !== 0 ? ' ' + Math.abs(r.gain) + ' day' + (Math.abs(r.gain) === 1 ? '' : 's') + (r.gain > 0 ? ' earlier' : ' later') + ' than the current forecast (' + dfmt(r.p.Current) + ').' : '');
     });
   }
-  function simRows(run, rt) {
-    return [['Rank', 'Season', 'Unit', 'Category', 'Sub type', 'Remaining qty', 'Daily rate used', 'Rate source', 'Days needed', 'Simulated start', 'Simulated finish', 'Current forecast finish', 'Sewing cutoff', 'Days early/late', 'Status']].concat(
+  function simInsightsSbs(run, rt, seq) {
+    var sq = {}; seq.rows.forEach(function (x) { sq[x.p.Plan_ID] = x; });
+    return run.rows.map(function (r) {
+      var head = 'Rank ' + r.rank + ' – ' + r.p.Label + ' (' + r.share + '%' + (run.total !== 100 && run.total > 0 ? ' = ' + r.pct + '% of the output' : '') + '): ', q = sq[r.p.Plan_ID];
+      if (!(rt.rate > 0)) return head + fmtNum(r.p.Remaining) + ' pcs remaining – no output rate, the date cannot be worked out.';
+      if (!r.finish) return head + fmtNum(r.p.Remaining) + ' pcs remaining – finishes beyond the planning calendar.';
+      return head + fmtNum(r.p.Remaining) + ' pcs remaining. ' + (r.share > 0 ? 'Starts at about ' + fmtNum(Math.round(rt.rate * r.pct / 100)) + ' pcs/day' : 'Waits (0%) until the plans with a share finish') +
+        ', runs ' + dfmt(r.start) + ' to ' + dfmt(r.finish) + ' (' + r.need + ' working day' + (r.need === 1 ? '' : 's') + '). ' +
+        (r.p.Cutoff ? 'Cutoff ' + dfmt(r.p.Cutoff) + ' → ' + (r.early === 0 ? 'on the cutoff day' : Math.abs(r.early) + ' day' + (Math.abs(r.early) === 1 ? '' : 's') + (r.early > 0 ? ' early' : ' late')) + '. ' : 'No sewing cutoff. ') +
+        (q && q.finish ? 'Sequential finish ' + dfmt(q.finish) + (q.finish === r.finish ? ' (same day).' : ' → side by side is ' + Math.abs(simDiff(r.finish, q.finish)) + ' day(s) ' + (r.finish < q.finish ? 'earlier.' : 'later.')) : '');
+    });
+  }
+  function simStat(p) {
+    var bar = function (v, cls) { return '<span class="sim-pb ' + (cls || '') + '"><i style="width:' + Math.min(100, v) + '%"></i></span>'; };
+    return '<div class="sim-st"><span title="Plan quantity">Qty <b>' + fmtNum(p.Plan_Qty) + '</b></span><span title="Lot qty received ÷ plan qty">Lots in <b>' + p.LotsPct + '%</b></span>' +
+      '<span title="Cut qty ÷ fabric issued">Fabric used <b>' + p.FabricPct + '%</b></span><span class="sew" title="Sewn qty ÷ plan qty">Sewing ' + bar(p.SewPct, 'sew') + '<b>' + p.SewPct + '%</b></span></div>';
+  }
+  function simRows(run, rt, seq) {
+    if (seq) {
+      var sq = {}; seq.rows.forEach(function (x) { sq[x.p.Plan_ID] = x; });
+      return [['Rank', 'Season', 'Unit', 'Category', 'Sub type', 'Plan qty', 'Lots in %', 'Fabric used %', 'Sewing %', 'Remaining qty', 'Mode', 'Share %', 'Daily rate used', 'Rate source', 'Days needed', 'Simulated start', 'Simulated finish', 'Sequential finish', 'Current forecast finish', 'Sewing cutoff', 'Days early/late', 'Status']].concat(
+        run.rows.map(function (r) { var q = sq[r.p.Plan_ID];
+          return [r.rank, r.p.Season, r.p.Unit, r.p.Category, r.p.Sub_Type, r.p.Plan_Qty, r.p.LotsPct, r.p.FabricPct, r.p.SewPct, r.p.Remaining, 'Side by side', r.share, rt.rate, SIM_SRC[rt.src], r.need == null ? '' : r.need, r.start ? dfmt(r.start) : '', r.finish ? dfmt(r.finish) : '',
+            q && q.finish ? dfmt(q.finish) : '', r.p.Current ? dfmt(r.p.Current) : '', r.p.Cutoff ? dfmt(r.p.Cutoff) : '', r.early == null ? '' : r.early, r.ok == null ? (r.finish ? 'No cutoff' : 'No date') : (r.ok ? 'On or before cutoff' : 'After cutoff')]; }));
+    }
+    return [['Rank', 'Season', 'Unit', 'Category', 'Sub type', 'Plan qty', 'Lots in %', 'Fabric used %', 'Sewing %', 'Remaining qty', 'Mode', 'Daily rate used', 'Rate source', 'Days needed', 'Simulated start', 'Simulated finish', 'Current forecast finish', 'Sewing cutoff', 'Days early/late', 'Status']].concat(
       run.rows.map(function (r) {
-        return [r.rank, r.p.Season, r.p.Unit, r.p.Category, r.p.Sub_Type, r.p.Remaining, rt.rate, SIM_SRC[rt.src], r.need == null ? '' : r.need, r.start ? dfmt(r.start) : '', r.finish ? dfmt(r.finish) : '', r.p.Current ? dfmt(r.p.Current) : '',
+        return [r.rank, r.p.Season, r.p.Unit, r.p.Category, r.p.Sub_Type, r.p.Plan_Qty, r.p.LotsPct, r.p.FabricPct, r.p.SewPct, r.p.Remaining, 'Sequential', rt.rate, SIM_SRC[rt.src], r.need == null ? '' : r.need, r.start ? dfmt(r.start) : '', r.finish ? dfmt(r.finish) : '', r.p.Current ? dfmt(r.p.Current) : '',
           r.p.Cutoff ? dfmt(r.p.Cutoff) : '', r.early == null ? '' : r.early, r.ok == null ? (r.finish ? 'No cutoff' : 'No date') : (r.ok ? 'On or before cutoff' : 'After cutoff')];
       }));
   }
@@ -3507,7 +3607,9 @@
     S.sim.v.forEach(function (v, i) { paintSimV(i); });
   }
   function paintSimV(i) {
-    var v = S.sim.v[i], r = S.simr, b = simBase(v), rt = simRate(v, b), run = simRun(v.order, b, rt.rate), box = document.querySelector('.sim-v[data-v="' + i + '"]'); if (!box) return;
+    var v = S.sim.v[i], r = S.simr, b = simBase(v), rt = simRate(v, b), sbs = S.sim.mode === 'sbs', seq = simRun(v.order, b, rt.rate), box = document.querySelector('.sim-v[data-v="' + i + '"]'); if (!box) return;
+    if (!v.share) simEqual(v);
+    var run = sbs ? simRunSbs(v.order, b, rt.rate, v) : seq;
     var h = '<div class="sim-h"><b>Vertical ' + (i + 1) + '</b><select data-a="unit" aria-label="Unit"><option value="">All units</option>' + r.units.map(function (u) { return '<option value="' + esc(u.id) + '"' + (u.id === v.unit ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('') + '</select></div>';
     h += '<div class="sim-rate">Rate <b>' + fmtNum(rt.rate) + '</b> pcs/day <span class="cellsub">' + esc(SIM_SRC[rt.src]) + (rt.src === 'actual' ? ' · ' + b.units.map(function (u) { return u.name + ' ' + fmtNum(u.rate) + ' (' + u.rateDays + ' d)'; }).join(', ') : '') + '</span></div>';
     h += '<div class="sim-lv">' +
@@ -3517,20 +3619,31 @@
       '<button type="button" class="btn sm ghost" data-a="reset">Reset</button></div>' +
       (v.mode === 'tail' ? '<div class="cellsub" style="white-space:normal">Output per tailor = ' + fmtNum(b.rate) + ' ÷ ' + b.tailors + ' tailors = ' + (Math.round(b.perTailor * 10) / 10) + ' pcs. Straight-line assumption: new tailors are taken as equally productive at once.' + (b.perTailor ? '' : ' <b>No tailors entered in Daily Manpower for those days.</b>') + '</div>' : '');
     h += '<div class="sim-sum"><span class="badge ' + (run.onTime === run.withCut ? 'ok' : 'warn') + '">' + run.onTime + ' of ' + run.withCut + ' on time</span> <span class="cellsub">' + run.late + ' day(s) late in total · ' + run.rows.length + ' plan(s)</span>' +
-      '<span class="sim-act"><button type="button" class="btn sm" data-a="sug">Suggest order</button><button type="button" class="btn sm ghost" data-a="csv">CSV</button><button type="button" class="btn sm ghost" data-a="xlsx">XLSX</button></span></div>';
-    if (v.sug) h += '<div class="sim-sug">' + v.sug.map(function (s, k) { return '<div class="' + (s.best ? 'best' : '') + '"><b>' + esc(s.l) + '</b>' + (s.best ? ' <span class="badge ok">Best</span>' : '') + '<div class="cellsub">' + s.onTime + ' of ' + s.withCut + ' on time · ' + s.late + ' day(s) late</div><button type="button" class="btn sm ghost" data-a="apply" data-k="' + k + '">Apply</button></div>'; }).join('') + '</div>';
+      '<span class="sim-act">' + (sbs ? '<button type="button" class="btn sm ghost" data-a="eq">Equal split</button>' : '<button type="button" class="btn sm" data-a="sug">Suggest order</button>') + '<button type="button" class="btn sm ghost" data-a="csv">CSV</button><button type="button" class="btn sm ghost" data-a="xlsx">XLSX</button></span></div>';
+    if (sbs) {
+      var done = function (x) { var n = x.rows.filter(function (y) { return !y.finish; }).length, l = simLast(x);
+        return n ? (l ? 'last finish <b>' + dfmt(l) + '</b> · ' : '') + '<b>' + n + '</b> plan(s) without a date' : 'all done <b>' + (l ? dfmt(l) : '–') + '</b>'; };
+      h += '<div class="sim-cmp"><div><span class="cellsub">Side by side</span><b>' + run.onTime + ' of ' + run.withCut + '</b> on time · ' + done(run) + '</div>' +
+        '<div><span class="cellsub">Sequential (same order)</span><b>' + seq.onTime + ' of ' + seq.withCut + '</b> on time · ' + done(seq) + '</div></div>' +
+        (run.total !== 100 ? '<div class="sim-warn">Shares add up to <b>' + Math.round(run.total * 10) / 10 + '%</b>' + (run.total > 0 ? ' – they are scaled to 100% (each plan gets its share ÷ ' + Math.round(run.total * 10) / 10 + ').' : ' – no plan has a share, so all plans split the output equally.') + '</div>' : '');
+    }
+    if (v.sug && !sbs) h += '<div class="sim-sug">' + v.sug.map(function (s, k) { return '<div class="' + (s.best ? 'best' : '') + '"><b>' + esc(s.l) + '</b>' + (s.best ? ' <span class="badge ok">Best</span>' : '') + '<div class="cellsub">' + s.onTime + ' of ' + s.withCut + ' on time · ' + s.late + ' day(s) late</div><button type="button" class="btn sm ghost" data-a="apply" data-k="' + k + '">Apply</button></div>'; }).join('') + '</div>';
+    var sqBy = {}; seq.rows.forEach(function (x) { sqBy[x.p.Plan_ID] = x; });
     h += '<div class="sim-list">' + run.rows.map(function (x, k) {
-      var cls = x.ok === false ? 'bad' : (x.ok ? 'ok' : '');
-      return '<div class="sim-row" draggable="true" data-k="' + k + '"><span class="sim-rk">' + x.rank + '</span><div class="sim-rb"><div class="sim-rl">' + esc(x.p.Label) + '</div>' +
-        '<div class="cellsub">' + fmtNum(x.p.Remaining) + ' pcs · ' + (x.need == null ? 'no rate' : x.need + ' d') + ' · cutoff ' + esc(x.p.Cutoff ? dfmt(x.p.Cutoff) : '–') + '</div>' +
+      var cls = x.ok === false ? 'bad' : (x.ok ? 'ok' : ''), q = sqBy[x.p.Plan_ID];
+      return '<div class="sim-row" draggable="true" data-k="' + k + '"><span class="sim-rk" title="' + (x.p.Rank ? 'Priority rank in Planning: ' + x.p.Rank : 'No priority rank in Planning') + '">' + x.rank + '</span><div class="sim-rb"><div class="sim-rl">' + esc(x.p.Label) + '</div>' +
+        simStat(x.p) +
+        '<div class="cellsub">' + fmtNum(x.p.Remaining) + ' pcs left · ' + (x.need == null ? (rt.rate > 0 ? 'beyond calendar' : 'no rate') : x.need + ' d') + ' · cutoff ' + esc(x.p.Cutoff ? dfmt(x.p.Cutoff) : '–') + '</div>' +
         '<div class="sim-rd"><span class="badge ' + cls + '">' + (x.finish ? dfmt(x.finish) : '–') + '</span> ' +
         (x.early != null ? '<span class="cellsub">' + (x.early >= 0 ? x.early + ' d early' : -x.early + ' d late') + '</span> ' : '') +
-        '<span class="cellsub">now ' + (x.p.Current ? dfmt(x.p.Current) : '–') + (x.gain ? ' · ' + Math.abs(x.gain) + ' d ' + (x.gain > 0 ? 'earlier' : 'later') : '') + '</span></div></div>' +
+        (sbs ? '<span class="cellsub">sequential ' + (q && q.finish ? dfmt(q.finish) : '–') + '</span>' :
+          '<span class="cellsub">now ' + (x.p.Current ? dfmt(x.p.Current) : '–') + (x.gain ? ' · ' + Math.abs(x.gain) + ' d ' + (x.gain > 0 ? 'earlier' : 'later') : '') + '</span>') + '</div></div>' +
+        (sbs ? '<label class="sim-sh" title="Share of the daily output"><input type="number" min="0" max="100" step="1" inputmode="numeric" data-a="sh" data-id="' + esc(x.p.Plan_ID) + '" value="' + esc(v.share[x.p.Plan_ID] == null ? '' : v.share[x.p.Plan_ID]) + '" aria-label="Share % for ' + esc(x.p.Label) + '">%</label>' : '') +
         '<div class="sim-mv"><button type="button" class="btn sm ghost" data-a="top" data-k="' + k + '" title="Move to top">⤒</button><button type="button" class="btn sm ghost" data-a="up" data-k="' + k + '" title="Up">▲</button><button type="button" class="btn sm ghost" data-a="down" data-k="' + k + '" title="Down">▼</button></div></div>';
     }).join('') + '</div>';
-    h += '<div class="sim-gw">' + simGantt(run, b) + '</div>';
+    h += '<div class="sim-gw">' + simGantt(run, b, sbs ? seq : null) + '</div>';
     h += '<details class="sim-ins"' + (v.insOpen ? ' open' : '') + '><summary>Insights (' + run.rows.length + ' plans)</summary><div class="cellsub" style="white-space:normal">Rate source: <b>' + esc(SIM_SRC[rt.src]) + '</b> – ' + fmtNum(rt.rate) + ' pcs/day' + (rt.src === 'actual' ? ' (weighted average of the last ' + r.avgDays + ' working days with output)' : '') + '.</div><ol>' +
-      simInsights(run, rt).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol></details>';
+      (sbs ? simInsightsSbs(run, rt, seq) : simInsights(run, rt)).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol></details>';
     box.innerHTML = h;
     box.querySelector('.sim-ins').addEventListener('toggle', function () { v.insOpen = this.open; });
     var move = function (from, to) { if (to < 0 || to >= v.order.length || from === to) return; var id = v.order.splice(from, 1)[0]; v.order.splice(to, 0, id); paintSimV(i); };
@@ -3540,18 +3653,21 @@
       else if (a === 'reset') { v.mode = 'actual'; v.out = ''; v.tail = ''; paintSimV(i); }
       else if (a === 'sug') { v.sug = v.sug ? null : simSuggest(v, b, rt.rate); paintSimV(i); }
       else if (a === 'apply') { v.order = v.sug[k].order.slice(); paintSimV(i); }
+      else if (a === 'eq') { simEqual(v); paintSimV(i); }
       else if (a === 'csv' || a === 'xlsx') {
-        var nm = 'Simulation_' + b.name.replace(/[^A-Za-z0-9]+/g, '_') + '_' + dfmt(todayStr()), rows = simRows(run, rt);
+        var nm = 'Simulation_' + (sbs ? 'SideBySide_' : 'Sequential_') + b.name.replace(/[^A-Za-z0-9]+/g, '_') + '_' + dfmt(todayStr()), rows = simRows(run, rt, sbs ? seq : null);
         if (a === 'csv') csvDownload(nm + '.csv', rows); else xlsxDownload(nm + '.xlsx', rows, 'Simulation');
       }
     };
     box.onchange = function (e) {
       var t = e.target, a = t.getAttribute('data-a');
       if (a === 'unit') { v.unit = t.value; simReset(v); paintSimV(i); return; }
+      if (a === 'sh') { var sc = box.querySelector('.sim-list'), top = sc ? sc.scrollTop : 0; paintSimV(i); var sl = document.querySelector('.sim-v[data-v="' + i + '"] .sim-list'); if (sl) sl.scrollTop = top; return; }
       if (t.name === 'lv' + i) { v.mode = t.value; paintSimV(i); }
     };
     box.oninput = function (e) {
-      var t = e.target, a = t.getAttribute('data-a'); if (a !== 'out' && a !== 'tail') return;
+      var t = e.target, a = t.getAttribute('data-a'); if (a !== 'out' && a !== 'tail' && a !== 'sh') return;
+      if (a === 'sh') { v.share[t.getAttribute('data-id')] = t.value === '' ? '' : Math.max(0, Math.min(100, Number(t.value) || 0)); return; }   /* worked out on change (Enter / Tab / leaving the box) */
       v[a] = t.value; v.mode = a;
       clearTimeout(v._t); v._t = setTimeout(function () { var pos = t.selectionStart; paintSimV(i); var n = document.querySelector('.sim-v[data-v="' + i + '"] input[data-a="' + a + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) { /* number input */ } } }, 250);
     };
@@ -3661,11 +3777,11 @@
           '<td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '<div class="cellsub">' + esc(x.Unit) + '</div></td><td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Running for">' + esc(x.Duration || '-') + '</td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canAct ? '<button class="btn sm" data-done="' + esc(x._id) + '">Complete</button><button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No lay in progress.</div>';
-    h += '<h3 class="sec">Completed lays</h3>';
+    h += '<h3 class="sec">Completed lays</h3>' + (r.workHours ? '<div class="hint" style="margin:-4px 0 8px">Duration = ' + (r.workHours.set ? 'working time only (' + esc(r.workHours.start) + '–' + esc(r.workHours.end) + (r.workHours.breaks.length ? ', breaks ' + esc(r.workHours.breaks.map(function (b) { return b.from + '–' + b.to; }).join(', ')) : '') + ', working days)' : 'clock time – set the working hours on the Settings page to count working time only') + '.</div>' : '');
     h += r.done.length ? '<table><thead><tr><th>Lay</th><th>Lot</th><th>Unit</th><th>Season</th><th>Sub type</th><th>Category</th><th>Table</th><th>Started</th><th>Completed</th><th>Duration</th><th>Qty</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.done.map(function (x) {
         return '<tr data-unit="' + esc(x.Unit || '') + '"><td data-l="Lay"><b>' + esc(x.Lay_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Last lay</span>' : '') + '</td><td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Unit">' + esc(planParts(x)[1] || x.Unit) + '</td><td data-l="Season">' + esc(planParts(x)[0] || '–') + '</td><td data-l="Sub type">' + esc(planParts(x)[3] || '–') + '</td><td data-l="Category">' + esc(x.Category) + '</td><td data-l="Table">' + esc(x.Table) + '</td>' +
-          '<td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Completed">' + esc(dfmt(x.End_At)) + '</td><td data-l="Duration"><b>' + esc(x.Duration || '-') + '</b></td><td data-l="Qty"><b>' + fmtNum(x.Lay_Qty) + '</b></td>' +
+          '<td data-l="Started">' + esc(dfmt(x.Start_At)) + '</td><td data-l="Completed">' + esc(dfmt(x.End_At)) + '</td><td data-l="Duration"><b>' + esc(x.Duration || '-') + '</b>' + (x.Clock && x.Clock !== x.Duration ? '<div class="cellsub">clock ' + esc(x.Clock) + '</div>' : '') + '</td><td data-l="Qty"><b>' + fmtNum(x.Lay_Qty) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-le="' + esc(x._id) + '">Edit</button>' : '') + (x.canCancel ? '<button class="btn sm ghost" data-xl="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">Nothing completed yet.</div>';
     $('#vb').innerHTML = h;
