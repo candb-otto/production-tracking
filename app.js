@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit, simulate: viewSimulate }[page];
+    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit, simulate: viewSimulate, xfer: viewXfer }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
@@ -1898,7 +1898,7 @@
         var act = p.Status === 'ACTIVE';
         return '<tr data-unit="' + esc(p.Unit) + '">' + (r.rankCol ? '<td data-l="Rank" style="white-space:nowrap">' + (p.Rank ? '<span class="sim-rk" style="display:inline-grid">' + p.Rank + '</span>' : '<span class="cellsub">–</span>') + (p.canRank ? ' <button class="btn sm ghost" type="button" data-rank="' + esc(p._id) + '" title="Change the priority rank">Change</button>' : '') + '</td>' : '') + '<td data-l="Plan" style="white-space:nowrap"><b>' + esc(p.Plan_ID) + '</b>' + (p.Remarks ? '<div class="cellsub">' + esc(p.Remarks) + '</div>' : '') + '</td>' +
           '<td data-l="Season">' + esc(p.Season) + '</td><td data-l="Section">' + esc(p.Section) + '</td><td data-l="Category">' + esc(p.Category) + '</td><td data-l="Sub type">' + esc(p.Sub_Type || '') + '</td><td data-l="Unit">' + esc(p.Unit) + '</td>' +
-          '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + '</td>' +
+          '<td data-l="Qty (pcs)">' + fmtNum(p.Plan_Qty) + '</td><td data-l="Issued">' + fmtNum(p.Issued) + (p.Over ? ' <span class="badge off" title="Issued is more than the plan quantity">Over-plan +' + fmtNum(p.Over) + '</span>' : '') + (p.Moved ? '<div class="cellsub">' + (p.Moved > 0 ? 'moved in ' : 'moved out ') + fmtNum(Math.abs(p.Moved)) + ' (cross-unit)</div>' : '') + '</td>' +
           '<td data-l="Cutoffs">' + (p.Plan_Type === 'IRON_ONLY' ? '<span class="badge">Ironing only</span> ' + esc(dfmt(p.IronPack_Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">iron &amp; pack cutoff</div></td>' : esc(dfmt(p.Cutoff_Date)) + ' ' + daysBadge(p.DaysLeft, r.alertDays) + '<div class="cellsub">' + (p.Plan_Type === 'JOB_WORK' ? '<span class="badge">Job work</span> FG inward' : 'sewing') + [['Fabric', p.Fabric_Cutoff_Date], ['Cutting', p.Cutting_Cutoff_Date], ['Ironing', p.Iron_Cutoff_Date], ['Packing recv.', p.IronPack_Cutoff_Date]].filter(function (c) { return c[1]; }).map(function (c) { return ' · ' + c[0] + ' ' + esc(dfmt(c[1])); }).join('') + '</div></td>') +
           '<td data-l="Status"><span class="badge ' + (PLAN_DISP[p.Display] || ['', ''])[1] + '">' + esc((PLAN_DISP[p.Display] || [p.Status])[0]) + '</span>' + (p.Lots ? '<div class="cellsub">' + p.LotsPacked + ' of ' + p.Lots + ' lot(s) packed</div>' : '') + (p.Fit_Status === 'OVER' ? ' <span class="badge warn" title="' + esc(p.Fit_Reason) + '">Over capacity</span><div class="cellsub" style="white-space:normal">' + esc(p.Fit_Reason) + '</div>' : '') + (p.Order_ID ? '<div class="cellsub">' + esc(p.Order_ID) + '</div>' : '') + '</td>' +
           (canWrite ? '<td class="acts-td"><div class="acts">' +
@@ -3104,6 +3104,31 @@
   }
   function bindRepLinks(el) { Array.prototype.forEach.call(el.querySelectorAll('[data-go]'), function (b) { b.onclick = function () { go(b.getAttribute('data-go')); }; }); }
 
+  /* ---------- Cross-unit moves (plan transfers at final cutting) ---------- */
+  function viewXfer(el) {
+    S.xf = S.xf || { from: '', to: '' };
+    el.innerHTML = '<div class="page-h"><h2>Cross-Unit Moves</h2></div>' +
+      '<div class="mhelp">Lots sent by the final cutting entry to another sewing unit of the same cutting group. The quantity moves from the source plan to the destination plan (the destination unit gets the credit; the source plan balance goes back up). ' +
+      'Units that keep sending lots away (big <b>Net</b> minus) may be short of sewing capacity.</div>' +
+      '<form class="fbar" id="xf_f"><label for="xf_a">From</label><input type="date" id="xf_a" value="' + esc(S.xf.from) + '"><label for="xf_b">To</label><input type="date" id="xf_b" value="' + esc(S.xf.to) + '">' +
+      '<button class="btn sm" type="submit">Show</button></form><div id="xf_b0"><div class="card empty">Loading…</div></div>';
+    $('#xf_f').onsubmit = function (e) { e.preventDefault(); S.xf = { from: $('#xf_a').value, to: $('#xf_b').value }; loadXfer(); };
+    loadXfer();
+  }
+  function loadXfer() {
+    return api('xferReport', S.xf).then(function (r) {
+      if (S.page !== 'xfer') return; var b = $('#xf_b0'); if (!b) return;
+      if (!r.setup) { b.innerHTML = '<div class="card empty">The Plan_Transfer sheet is not set up yet.</div>'; return; }
+      var h = '<h3 class="sec">By unit</h3>' + (r.units.length ? '<table><thead><tr><th>Unit</th><th>Cutting group</th><th>Moved out (pcs)</th><th>Moves out</th><th>Moved in (pcs)</th><th>Moves in</th><th>Net</th></tr></thead><tbody>' +
+        r.units.map(function (u) { return '<tr><td data-l="Unit"><b>' + esc(u.Unit) + '</b></td><td data-l="Cutting group">' + esc(u.Group || '–') + '</td><td data-l="Moved out">' + fmtNum(u.Out) + '</td><td data-l="Moves out">' + u.MovesOut + '</td>' +
+          '<td data-l="Moved in">' + fmtNum(u.In) + '</td><td data-l="Moves in">' + u.MovesIn + '</td><td data-l="Net"><b style="color:' + (u.Net < 0 ? 'var(--bad)' : 'inherit') + '">' + (u.Net > 0 ? '+' : '') + fmtNum(u.Net) + '</b></td></tr>'; }).join('') + '</tbody></table>'
+        : '<div class="card empty">No cross-unit moves in this period.</div>');
+      h += '<h3 class="sec">Moves</h3>' + (r.rows.length ? '<table><thead><tr><th>Date</th><th>Lot</th><th>From unit</th><th>From plan</th><th>To unit</th><th>To plan</th><th>Qty</th><th>Cutting entry</th><th>By</th></tr></thead><tbody>' +
+        r.rows.map(function (x) { return '<tr data-id="' + esc(x._id) + '"><td data-l="Date">' + esc(dfmt(x.Date)) + '</td><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b></td><td data-l="From unit">' + esc(x.From_Unit) + '</td><td data-l="From plan">' + esc(x.From_Plan) + '</td>' +
+          '<td data-l="To unit"><b>' + esc(x.To_Unit) + '</b></td><td data-l="To plan">' + esc(x.To_Plan) + '</td><td data-l="Qty"><b>' + fmtNum(x.Qty) + '</b></td><td data-l="Cutting entry">' + esc(x.Cutting_ID) + '</td><td data-l="By">' + esc(x.By) + '</td></tr>'; }).join('') + '</tbody></table>' : '');
+      b.innerHTML = h;
+    }).catch(function (e) { var b = $('#xf_b0'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
+  }
   function viewWipDays(el) {
     S.wd = S.wd || { unitId: '', seasonId: '' };
     el.innerHTML = '<div class="page-h"><h2>WIP Days by Unit</h2></div>' + repLinks('wipdays') +
@@ -3990,7 +4015,7 @@
     h += '<h3 class="sec">Cutting entries</h3>';
     h += r.entries.length ? '<table><thead><tr><th>Entry</th><th>Lot</th><th>Category</th><th>Unit</th><th>Date</th><th>Qty</th>' + (w ? '<th></th>' : '') + '</tr></thead><tbody>' +
       r.entries.map(function (x) {
-        return '<tr' + rid(x) + '><td data-l="Entry"><b>' + esc(x.Cutting_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Complete</span>' : '') + (x.Remarks ? '<div class="cellsub">' + esc(x.Remarks) + '</div>' : '') + '</td>' +
+        return '<tr' + rid(x) + '><td data-l="Entry"><b>' + esc(x.Cutting_ID) + '</b>' + (x.Is_Final ? ' <span class="badge ok">Complete</span>' : '') + (x.Send_To ? '<div class="cellsub">Sent to ' + esc(x.Send_To) + '</div>' : '') + (x.Remarks ? '<div class="cellsub">' + esc(x.Remarks) + '</div>' : '') + '</td>' +
           '<td data-l="Lot">' + esc(x.Lot_No) + '</td><td data-l="Category">' + esc(x.CatName || x.Category) + '</td><td data-l="Unit">' + esc(x.UnitName || x.Unit) + '</td><td data-l="Date">' + esc(dfmt(x.Cut_Date)) + '</td><td data-l="Qty"><b>' + fmtNum(x.Cut_Qty) + '</b></td>' +
           (w ? '<td class="acts-td"><div class="acts">' + (x.canCancel ? corrBtn('CUT', x) + '<button class="btn sm ghost" data-xc="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table>' : '<div class="card empty">No cutting entered yet.</div>';
@@ -4011,12 +4036,16 @@
       '<label for="cf_q">Pieces cut</label><input id="cf_q" type="number" min="1" step="1" inputmode="numeric" value="' + Math.max(lot.PendingCut, 0) + '">' +
       '<div class="hint" id="cf_s" style="margin-top:8px"></div>' +
       '<label class="chk" id="cf_fl" hidden><input type="checkbox" id="cf_f"> <span>Cutting complete (short cut) – close cutting for this lot</span></label>' +
+      (S.cut.sendCol ? '<div id="cf_ub" hidden><label for="cf_u">Send to Sewing Unit</label><select id="cf_u" required>' + (lot.Dest || []).map(function (u) {
+        return '<option value="' + esc(u.id) + '"' + (u.own ? ' selected' : '') + '>' + esc(u.name) + ' · sewing WIP ' + fmtNum(u.wip) + ' pcs' + (u.own ? ' (own unit)' : '') + '</option>'; }).join('') + '</select>' +
+        '<div class="hint">' + (lot.SendFixed ? 'Sewing has already started for this lot, so it stays in ' + esc(lot.Unit) + '.' : (lot.Group ? esc(lot.Group) + ': the whole lot moves to the unit you pick. Pick the unit with the lower WIP.' : 'This unit is in no cutting group.')) + '</div></div>' : '') +
       '<label for="cf_r">Remarks (optional)</label><input id="cf_r" maxlength="200" autocomplete="off">' +
       '<div class="row"><button type="button" class="btn ghost" id="cf_x">Back</button><button class="btn" type="submit">Save</button></div></form>', function () {
       $('#cf_x').onclick = closeModal;
       function calc() {
         var t = lot.Cut + (Number($('#cf_q').value) || 0), short = lot.LayClosed && t < lot.Laid;
         $('#cf_fl').hidden = !short; if (!short) $('#cf_f').checked = false;
+        if ($('#cf_ub')) $('#cf_ub').hidden = !(lot.LayClosed && (t >= lot.Laid || $('#cf_f').checked));
         $('#cf_s').innerHTML = 'Total cut after this entry <b>' + fmtNum(t) + '</b> of ' + fmtNum(lot.Laid) + ' laid' +
           (!lot.LayClosed ? ' · layering is still going on' : t >= lot.Laid ? ' · cutting will close' : ' · ' + fmtNum(lot.Laid - t) + ' short');
       }
@@ -4024,7 +4053,8 @@
       $('#cf').onsubmit = function (ev) {
         ev.preventDefault();
         var pay = { lotId: lotId, date: $('#cf_d').value, qty: $('#cf_q').value, final: !$('#cf_fl').hidden && $('#cf_f').checked, remarks: $('#cf_r').value };
-        api('cutSave', pay).then(function (res) { closeModal(); toast(res.closed ? 'Cutting saved – cutting closed' : 'Cutting saved', 'ok'); return loadCut(); }).catch(fail);
+        if ($('#cf_ub') && !$('#cf_ub').hidden) pay.sendTo = $('#cf_u').value;
+        api('cutSave', pay).then(function (res) { closeModal(); toast(res.moved ? 'Cutting closed – lot sent to ' + res.toUnit : (res.closed ? 'Cutting saved – cutting closed' : 'Cutting saved'), 'ok'); return loadCut(); }).catch(fail);
       };
     });
   }
@@ -4147,9 +4177,9 @@
   function clubForm() {
     var lots = S.conv.lots || [];
     if (lots.length < 2) { toast('Need at least two lots with pieces left to club.', 'bad'); return; }
-    openModal('<h3>Club lots</h3><form id="cl"><label>Lots to club (same plan, same washing) and pieces to take from each</label><input type="search" id="cl_q" class="ss-q" placeholder="Search lot no, plan, category…" autocomplete="off" aria-label="Search lots"><div class="hint ss-n" id="cl_qn"></div><div id="cl_list" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">' +
+    openModal('<h3>Club lots</h3><form id="cl"><label>Lots to club and pieces to take from each</label><div class="hint">Lots of different plans and units can be clubbed when they are in the same cutting group, season and category, with the same washing. The new lot gets the one fabric width you enter below. A clubbed lot is never split again.</div><input type="search" id="cl_q" class="ss-q" placeholder="Search lot no, plan, category…" autocomplete="off" aria-label="Search lots"><div class="hint ss-n" id="cl_qn"></div><div id="cl_list" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">' +
       lots.map(function (l, i) {
-        return '<div class="cl-row" style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub">' + esc(planName(l)) + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
+        return '<div class="cl-row" style="display:flex;align-items:center;gap:8px;padding:6px 0"><label class="chk" style="flex:1;margin:0"><input type="checkbox" class="cl-c" data-i="' + i + '"> <span>' + esc(l.label) + '<span class="cellsub" style="display:block">' + esc(planName(l)) + (l.groupName ? ' · ' + esc(l.groupName) : '') + (l.washing ? ' · Washing' : '') + '</span></span></label>' +
           '<input class="cl-q" data-i="' + i + '" type="number" min="1" max="' + l.qty + '" step="1" inputmode="numeric" value="' + l.qty + '" style="width:90px;height:38px" disabled></div>';
       }).join('') + '</div>' +
       '<div class="hint" id="cl_sum" style="margin-top:8px">Select two or more lots.</div>' +
@@ -4167,7 +4197,7 @@
           p.forEach(function (x) { t += x.qty; });
           boxes.forEach(function (b) {
             var i = Number(b.getAttribute('data-i')), l = lots[i];
-            b.disabled = !b.checked && !!first && (l.Plan_ID !== first.Plan_ID || l.washing !== first.washing);
+            b.disabled = !b.checked && !!first && (l.group !== first.group || l.season !== first.season || l.category !== first.category || l.washing !== first.washing);
             qin(i).disabled = !b.checked;
           });
           $('#cl_sum').innerHTML = p.length ? p.length + ' lot(s) selected · new lot will have <b>' + fmtNum(t) + '</b> pcs' : 'Select two or more lots.';
