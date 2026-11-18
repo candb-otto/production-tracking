@@ -190,7 +190,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.nav'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-p') === page);
     });
-    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit, simulate: viewSimulate, xfer: viewXfer }[page];
+    var v = { dbusage: viewDbUsage, dashboard: viewDashboard, mgmt: viewMgmt, reports: viewReports, wipdays: viewWipDays, cycle: viewCycle, alertset: viewAlertSet, users: viewUsers, access: viewAccess, password: viewPassword, masters: function (el) { viewMasters(el, false); }, settings: viewSettings, planning: viewPlanning, fabric: viewFabric, lots: viewLots, conversion: viewConversion, layering: viewLayering, cutting: viewCutting, sewout: viewSewOut, sewqc: viewSewQc, sewfinal: viewSewFinal, washing: viewWashing, washmove: viewWashMove, ironing: viewIron, ironqc: viewIronQc, stickering: viewStick, packsend: viewPackSend, packrecv: viewPackRecv, tracking: viewTracking, wip: viewWip, manpower: viewManpower, efficiency: viewEfficiency, capacity: viewCapacity, forecast: viewForecast, orders: viewOrders, ironlots: viewIronLots, jwinward: viewJwInward, audit: viewAudit, simulate: viewSimulate, xfer: viewXfer, activity: viewActivity }[page];
     if (typeof v !== 'function') { $('#view').innerHTML = '<div class="card empty">This page needs the latest screens. Press Ctrl+F5 to load them; if it still shows this, upload the newest app.js to the production-tracking repo.</div>'; return; }
     v($('#view'));
   }
@@ -300,7 +300,7 @@
       ths.forEach(function (t, i) { if (dcol < 0 && /^(date|started|completed)$/i.test(t)) dcol = i; });
       if (dcol < 0) ths.forEach(function (t, i) { if (dcol < 0 && /(date|since|when|created|updated|last login|time)/i.test(t) && !/(cut-?off|per|hours?|std|standard|sam)/i.test(t)) dcol = i; });
       /* drop-down filters for short, repeating columns (status, unit, season, category, stage ...) */
-      var fcols = [], PAGE = 10;
+      var fcols = [], PAGE = tb.hasAttribute('data-all') ? 1000 : 10;   /* data-all: one page */
       var cellTxt = function (tr, i) { var c = tr.cells[i]; return c ? c.textContent.replace(/\s+/g, ' ').trim() : ''; };
       /* Unit filter first, on every table that has a unit: a unit column, a "Category / Unit" column, or rows tagged with data-unit */
       var unitAttr = Array.prototype.some.call(body.rows, function (tr) { return tr.hasAttribute('data-unit'); }), unitCol = -1;
@@ -1092,7 +1092,7 @@
   function mgRange(r) { return dfmt(r.from) + (r.from !== r.to ? ' to ' + dfmt(r.to) : ''); }
   function mgPrev(r) { return dfmt(r.prevFrom) + (r.prevFrom !== r.prevTo ? ' to ' + dfmt(r.prevTo) : ''); }
   /* ---------- DER: department reports (tabs on the Management Dashboard page) ---------- */
-  var DER_TABS = [['', 'Management Dashboard'], ['CUTTING', 'Cutting Report'], ['SEWING', 'Sewing Report'], ['IRONING', 'Ironing Report']];
+  var DER_TABS = [['', 'Management Dashboard'], ['SPS', 'Season Production Status'], ['CUTTING', 'Cutting Report'], ['SEWING', 'Sewing Report'], ['IRONING', 'Ironing Report']];
   function mgTabs() {
     return '<div class="mg-tabs">' + DER_TABS.map(function (t) { return '<button type="button" class="chipb' + ((S.mgTab || '') === t[0] ? ' on' : '') + '" data-tab="' + t[0] + '">' + esc(t[1]) + '</button>'; }).join('') + '</div>';
   }
@@ -1230,6 +1230,7 @@
     setTimeout(function () { window.print(); setTimeout(function () { if (b.classList.contains('mg-print') && !window.matchMedia('print').matches) done(); }, 1500); }, 60);
   }
   function viewMgmt(el) {
+    if (S.mgTab === 'SPS') return viewSps(el);
     if (S.mgTab) return viewDer(el);
     var t = todayStr();
     S.mg = S.mg || { from: t, to: t, unitId: '', seasonId: '' };
@@ -1285,18 +1286,7 @@
         (r.len > 1 ? '<div class="mg-ks">Avg ' + mgN(k.PerDay) + ' pcs / day</div>' : '') +
         '<div class="mg-kc">' + (k.Qty || k.Prev ? mgD(k.Chg, 'up', false) + ' <span class="mg-ks">vs previous (' + mgN(k.Prev) + ')</span>' : '<span class="mg-d flat">No output</span>') + '</div></div>';
     }).join('') + '</div>');
-    /* 3. seasons */
-    var sk = []; r.seasons.forEach(function (s) { s.Stages.forEach(function (x) { if (sk.indexOf(x.k) < 0) sk.push(x.k); }); });
-    sk = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].filter(function (k) { return sk.indexOf(k) >= 0; });
-    h += mgSec(3, 'Season Production Status', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Planned qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
-      r.seasons.map(function (s) {
-        var by = {}; s.Stages.forEach(function (x) { by[x.k] = x; }); var st = MG_SS[s.Status] || [s.Status, ''];
-        return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b><div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(s.Qty) + '</td>' +
-          sk.map(function (k) { return '<td data-l="' + esc(MG_SK[k]) + '">' + mgStageCell(by[k]) + '</td>'; }).join('') +
-          '<td data-l="Sewing cutoff">' + esc(dfmt(s.Cutoff) || '–') + '</td><td class="n" data-l="Days left"><b class="' + (s.DaysLeft != null && s.DaysLeft < 0 ? 'mg-neg' : '') + '">' + (s.DaysLeft == null ? '–' : s.DaysLeft) + '</b>' + (s.DaysLeft != null ? '<div class="mg-sm">' + s.WorkDaysLeft + ' working</div>' : '') + '</td>' +
-          '<td class="n" data-l="Need / pace">' + (s.SewRemaining > 0 ? '<b>' + mgN(s.NeedPerDay) + '</b> / ' + mgN(s.PacePerDay) + '<div class="mg-sm">' + mgN(s.SewRemaining) + ' pcs to sew</div>' : '<span class="mg-sm">sewing done</span>') + '</td>' +
-          '<td data-l="Status"><span class="mg-chip ' + st[1] + '">' + esc(st[0]) + '</span></td></tr>';
-      }).join('') + '</tbody></table></div><div class="mg-note">Each stage: qty (% of planned qty); the line below = % of fabric issued.</div>' + mgCatTable(r, sk) : '<div class="card empty">No open season' + (r.season ? '' : 's') + ' with plans for this filter.</div>');
+    h += mgSeasonSec(r);
     /* 4 + 5. charts */
     h += '<div class="mg-two">' + mgSec(4, r.chart.title, esc(mgRange(r)) + ' · vs previous period', '<div class="mg-ch">' + mgColumns(r.chart.bars) + '</div>', 'mg-half') +
       mgSec(5, 'WIP by Stage – Days of Work Held', 'as on today · days = WIP ÷ avg output of last ' + r.wipAvgDays + ' working days', '<div class="mg-ch">' + mgWipBars(r.funnel) + '</div>', 'mg-half') + '</div>';
@@ -1329,6 +1319,62 @@
     }).join('') + '</ol>' : '<div class="card empty">Nothing stands out for this period.</div>');
     h += '</div>';
     $('#mgb').innerHTML = h;
+  }
+  /* ---------- Season Production Status: one A4 landscape page ---------- */
+  function viewSps(el) {
+    S.sps = S.sps || { asOn: todayStr(), unitId: '', seasonId: '' };
+    el.innerHTML = '<div class="mg">' + mgTabs() +
+      '<div class="mg-top"><div><h2>Season Production Status</h2><div class="mg-sub">One page, A4 landscape</div></div>' +
+      '<div class="mg-act"><button class="btn" id="sps_pdf">Download PDF</button></div></div>' +
+      '<div class="mg-filters card"><div class="mg-f"><label>As on<input type="date" id="sps_d"></label>' +
+      '<label>Unit<select id="sps_u"><option value="">All units</option></select></label><label>Season<select id="sps_s"><option value="">All open seasons</option></select></label></div></div>' +
+      '<div id="spsb"><div class="card empty">Loading…</div></div></div>';
+    $('#sps_d').value = S.sps.asOn;
+    var reload = function () { S.sps.asOn = $('#sps_d').value || todayStr(); S.sps.unitId = $('#sps_u').value; S.sps.seasonId = $('#sps_s').value; loadSps(); };
+    $('#sps_d').onchange = reload; $('#sps_u').onchange = reload; $('#sps_s').onchange = reload;
+    $('#sps_pdf').onclick = spsPdf; wireMgTabs(el);
+    loadSps();
+  }
+  function loadSps() {
+    var my = ++mgSeq;
+    return api('mgmtDash', { from: S.sps.asOn, to: S.sps.asOn, unitId: S.sps.unitId, seasonId: S.sps.seasonId }).then(function (r) {
+      if (my !== mgSeq || S.page !== 'mgmt' || S.mgTab !== 'SPS') return;
+      S.spsr = r;
+      $('#sps_u').innerHTML = '<option value="">All units</option>' + r.filters.units.map(function (u) { return '<option value="' + esc(u.id) + '"' + (S.sps.unitId === u.id ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('');
+      $('#sps_s').innerHTML = '<option value="">All open seasons</option>' + r.filters.seasons.map(function (x) { return '<option value="' + esc(x.id) + '"' + (S.sps.seasonId === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('');
+      $('#spsb').innerHTML = '<div class="sps-page"><div class="mg-ph sps-ph"><div class="mg-ph1"><div class="mg-pl">' + logoImg(LOGO_CLIENT, 'mg-logo mg-logo-c', 'Company logo') + '</div><div class="mg-pc">Otto Clothing Pvt Ltd</div><div class="mg-pr">' + logoImg(LOGO_POWER, 'mg-logo mg-logo-p', 'Powered by C&B') + '</div></div>' +
+        '<div class="mg-pt">Season Production Status</div>' +
+        '<div class="mg-pf"><span><b>As on:</b> ' + esc(dfmt(r.to)) + '</span><span>' + esc(r.unit ? 'Unit - ' + r.unit.name : 'All Units') + '</span><span>' + esc(r.season ? r.season.name : 'All Open Seasons') + '</span></div></div>' +
+        mgSeasonSec(r) + '<div class="mg-foot sps-foot">Generated ' + esc(dfmt(todayStr())) + ' · Production Tracking</div></div>';
+    }).catch(function (e) { if (my === mgSeq) { var b = $('#spsb'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; } });
+  }
+  /* PDF: print → Save as PDF on ONE A4 landscape page (scaled down to fit) */
+  function spsPdf() {
+    var r = S.spsr; if (!r) return;
+    var b = document.body, pg = $('.sps-page'), title = document.title;
+    b.classList.add('mg-print', 'sps-print');
+    pg.style.zoom = ''; var hgt = pg.scrollHeight, max = 700;   /* A4 landscape printable height at 1060 px width */
+    if (hgt > max) pg.style.zoom = String(Math.floor(max / hgt * 100) / 100);
+    document.title = 'Season Production Status ' + dfmt(r.to) + (r.unit ? ' - ' + r.unit.name : '');
+    var done = function () { b.classList.remove('mg-print', 'sps-print'); pg.style.zoom = ''; document.title = title; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(function () { window.print(); setTimeout(function () { if (b.classList.contains('sps-print') && !window.matchMedia('print').matches) done(); }, 1500); }, 60);
+  }
+  /* Season Production Status section (Management Dashboard and its own one-page landscape report) */
+  function mgSeasonSec(r) {
+    var h = '';
+    var sk = []; r.seasons.forEach(function (s) { s.Stages.forEach(function (x) { if (sk.indexOf(x.k) < 0) sk.push(x.k); }); });
+    sk = ['FABRIC', 'CUTTING', 'SEWING', 'JOBWORK', 'IRONING', 'PACKING'].filter(function (k) { return sk.indexOf(k) >= 0; });
+    h += mgSec(3, 'Season Production Status', 'days left as on ' + esc(dfmt(r.to)), r.seasons.length ? '<div class="mg-tw"><table class="mg-t"><thead><tr><th>Season</th><th class="n">Planned qty</th>' + sk.map(function (k) { return '<th>' + esc(MG_SK[k]) + '</th>'; }).join('') + '<th>Sewing cutoff</th><th class="n">Days left</th><th class="n">Sewing need / pace per day</th><th>Status</th></tr></thead><tbody>' +
+      r.seasons.map(function (s) {
+        var by = {}; s.Stages.forEach(function (x) { by[x.k] = x; }); var st = MG_SS[s.Status] || [s.Status, ''];
+        return '<tr><td data-l="Season"><b>' + esc(s.Season) + '</b><div class="mg-sm">' + s.Plans + ' plan(s)</div></td><td class="n" data-l="Plan qty">' + mgN(s.Qty) + '</td>' +
+          sk.map(function (k) { return '<td data-l="' + esc(MG_SK[k]) + '">' + mgStageCell(by[k]) + '</td>'; }).join('') +
+          '<td data-l="Sewing cutoff">' + esc(dfmt(s.Cutoff) || '–') + '</td><td class="n" data-l="Days left"><b class="' + (s.DaysLeft != null && s.DaysLeft < 0 ? 'mg-neg' : '') + '">' + (s.DaysLeft == null ? '–' : s.DaysLeft) + '</b>' + (s.DaysLeft != null ? '<div class="mg-sm">' + s.WorkDaysLeft + ' working</div>' : '') + '</td>' +
+          '<td class="n" data-l="Need / pace">' + (s.SewRemaining > 0 ? '<b>' + mgN(s.NeedPerDay) + '</b> / ' + mgN(s.PacePerDay) + '<div class="mg-sm">' + mgN(s.SewRemaining) + ' pcs to sew</div>' : '<span class="mg-sm">sewing done</span>') + '</td>' +
+          '<td data-l="Status"><span class="mg-chip ' + st[1] + '">' + esc(st[0]) + '</span></td></tr>';
+      }).join('') + '</tbody></table></div><div class="mg-note">Each stage: qty (% of planned qty); the line below = % of fabric issued.</div>' + mgCatTable(r, sk) : '<div class="card empty">No open season' + (r.season ? '' : 's') + ' with plans for this filter.</div>');
+    return h;
   }
   function mgStageCell(x) {
     if (!x) return '<span class="mg-sm">–</span>';
@@ -1610,6 +1656,20 @@
 
   /* ---------- masters (generic, driven by server definitions) ---------- */
   function viewSettings(el) { viewMasters(el, true); }
+  /* Settings page: washing process on / off */
+  function loadWashSwitch() {
+    var box = $('#wsw'); if (!box) return;
+    api('washSwitchInfo', {}, true).then(function (r) {
+      box.innerHTML = '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">Washing process</h3>' +
+        '<label class="chk"><input type="checkbox" id="wsw_on"' + (r.on ? ' checked' : '') + '> <span><b>Washing is ON</b> – Washing Send, Washing Receive and Washing QC / Move to Ironing are used</span></label>' +
+        '<div class="hint">Switch OFF to hold washing: the washing pages are hidden, the washing option is not shown on Fabric Issue, and lots marked "washing" go from Sewing straight to Ironing ' +
+        '(lots already sent to washing are treated as washed). Switch ON again any time.</div></div>';
+      $('#wsw_on').onchange = function () {
+        var on = this.checked;
+        api('washSwitchSave', { on: on }).then(function () { toast('Washing switched ' + (on ? 'ON' : 'OFF') + ' – reloading the menu', 'ok'); setTimeout(function () { location.reload(); }, 900); }).catch(function (e) { $('#wsw_on').checked = !on; fail(e); });
+      };
+    }).catch(function () { box.innerHTML = ''; });
+  }
   /* Settings page: working hours and breaks (lay duration counts only working time) */
   function loadWorkHours() {
     var box = $('#wh'); if (!box) return;
@@ -1636,8 +1696,8 @@
   }
   function viewMasters(el, settings) {
     S.mset = !!settings;
-    el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div>' + (settings ? '<div id="wh"></div>' : '') + '<div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
-    if (settings) loadWorkHours();
+    el.innerHTML = '<div class="page-h"><h2>' + (settings ? 'Settings' : 'Masters') + '</h2></div>' + (settings ? '<div id="wsw"></div><div id="wh"></div>' : '') + '<div class="tabs" id="mt"' + (settings ? ' hidden' : '') + '></div><div id="mh"></div><div id="mb"></div>';
+    if (settings) { loadWorkHours(); loadWashSwitch(); }
     api(settings ? 'settingsDefs' : 'masterDefs').then(function (defs) {
       if (!settings && canSeasons()) defs = [{ name: SEASONS_TAB, label: 'Seasons' }].concat(defs);
       S.mdefs = defs;
@@ -2392,8 +2452,8 @@
   function paintFabricRows() {
     var r = S.fab, rows = r.rows;
     if (!rows.length) { $('#fb').innerHTML = '<div class="card empty">No fabric issued yet' + (r.canWrite ? '. Click “+ Issue fabric”.' : '.') + '</div>'; return; }
-    var anyAct = r.canWrite;
-    $('#fb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Sub type</th><th>Fabric</th><th>Qty (pcs)</th><th>Date</th><th>Flags</th><th>Status</th>' + (anyAct ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    var anyAct = r.canWrite, flags = r.washOn !== false || rows.some(function (x) { return x.JobWork; });   /* washing off: the Flags column only for job work */
+    $('#fb').innerHTML = '<table><thead><tr><th>Lot</th><th>Plan</th><th>Category / Unit</th><th>Sub type</th><th>Fabric</th><th>Qty (pcs)</th><th>Date</th>' + (flags ? '<th>Flags</th>' : '') + '<th>Status</th>' + (anyAct ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (x) {
         var live = x.Status === 'ACTIVE';
         return '<tr' + rid(x) + ' data-unit="' + esc(x.Unit) + '"' + (live ? '' : ' style="opacity:.6"') + '><td data-l="Lot"><b>' + esc(x.Lot_No) + '</b><div class="cellsub">' + esc(x.Lot_ID) + ' · ' + esc(x.Fabric_Issue_ID) + '</div></td>' +
@@ -2402,7 +2462,7 @@
           '<td data-l="Sub type">' + (x.Sub_Type ? esc(x.Sub_Type) : '-') + '</td>' +
           '<td data-l="Fabric">' + esc(x.Fabric_Type) + (x.Fabric_Width ? '<div class="cellsub">' + esc(x.Fabric_Width) + '</div>' : '') + '</td>' +
           '<td data-l="Qty (pcs)">' + fmtNum(x.Issue_Qty) + '<div class="cellsub">Order ' + fmtNum(x.Order_Qty) + (x.Extra_Qty ? ' · Extra ' + fmtNum(x.Extra_Qty) : '') + (x.Adj_Qty ? ' · <span style="color:var(--bad)">Adjusted −' + fmtNum(x.Adj_Qty) + '</span>' : '') + '</div></td><td data-l="Date">' + esc(dfmt(x.Issue_Date)) + '</td>' +
-          '<td data-l="Flags">' + (x.JobWork ? '<span class="badge">Job work</span>' + (x.Inhouse_Finish ? ' <span class="badge">In-house finish</span>' : '') : (x.Washing_Required ? '<span class="badge">Wash</span>' : '-')) + '</td>' +
+          (flags ? '<td data-l="Flags">' + (x.JobWork ? '<span class="badge">Job work</span>' + (x.Inhouse_Finish ? ' <span class="badge">In-house finish</span>' : '') : (x.Washing_Required && r.washOn !== false ? '<span class="badge">Wash</span>' : '-')) + '</td>' : '') +
           '<td data-l="Status"><span class="badge ' + (live ? 'ok' : 'off') + '">' + (live ? (x.Locked ? 'In production' : 'Issued') : 'Cancelled') + '</span></td>' +
           (anyAct ? '<td class="acts-td"><div class="acts">' + (x.canEdit ? '<button class="btn sm ghost" data-a="edit" data-id="' + esc(x._id) + '">Edit</button>' : '') +
             (x.canCancel ? '<button class="btn sm ghost" data-a="cancel" data-id="' + esc(x._id) + '">Cancel</button>' : '') + '</div></td>' : '') + '</tr>';
@@ -2437,7 +2497,7 @@
       '<label for="ff_w">Fabric width (optional)</label><input id="ff_w" maxlength="30" autocomplete="off" value="' + esc(x ? x.Fabric_Width : '') + '">' +
       '<label for="ff_q">Total quantity issued (pieces) – becomes the lot quantity</label><input id="ff_q" type="number" min="1" step="1" inputmode="numeric" value="' + esc(x ? x.Issue_Qty : '') + '">' +
       '<label for="ff_e">Extra quantity (optional)</label><input id="ff_e" type="number" min="0" step="1" inputmode="numeric" value="' + esc(x && x.Extra_Qty ? x.Extra_Qty : '') + '"><div class="hint" id="ff_oh"></div>' +
-      '<label class="chk" id="ff_wrl"><input type="checkbox" id="ff_wr"' + (x && x.Washing_Required ? ' checked' : '') + '> Washing required</label>' +
+      '<label class="chk" id="ff_wrl"' + (S.fab && S.fab.washOn === false ? ' data-off="1" hidden' : '') + '><input type="checkbox" id="ff_wr"' + (x && x.Washing_Required ? ' checked' : '') + '> Washing required</label>' +
       '<label class="chk" id="ff_ihl" hidden><input type="checkbox" id="ff_ih"' + (x ? (x.Inhouse_Finish ? ' checked' : '') : ' checked') + '> In-house ironing, stickering &amp; packing after FG inward</label>' +
       '<div class="hint" id="ff_jh" hidden>Job work plan: this is the fabric sent out to the job worker. The finished goods are recorded in <b>Job Work Inward</b>.</div>' +
       '<label for="ff_r">Remarks (optional)</label><input id="ff_r" maxlength="200" autocomplete="off" value="' + esc(x ? x.Remarks : '') + '">' +
@@ -2451,7 +2511,7 @@
         $('#ff_q').oninput = split; $('#ff_e').oninput = split; split();
         function applyJw() {
           var pp = plist.filter(function (z) { return z.id === $('#ff_p').value; })[0], jw = isNew ? !!(pp && pp.jobWork) : !!x.JobWork;
-          $('#ff_wrl').hidden = jw; $('#ff_ihl').hidden = !jw; $('#ff_jh').hidden = !jw;
+          $('#ff_wrl').hidden = jw || $('#ff_wrl').hasAttribute('data-off'); $('#ff_ihl').hidden = !jw; $('#ff_jh').hidden = !jw;
         }
         applyJw();
         $('#ff_p').onchange = function () {
@@ -3104,6 +3164,52 @@
   }
   function bindRepLinks(el) { Array.prototype.forEach.call(el.querySelectorAll('[data-go]'), function (b) { b.onclick = function () { go(b.getAttribute('data-go')); }; }); }
 
+  /* ---------- User Activity (Production Admin + Super Admin): how regularly each department / unit / user enters data ---------- */
+  function viewActivity(el) {
+    S.act = S.act || { from: dAgo(6), to: todayStr() };
+    el.innerHTML = '<div class="page-h"><h2>User Activity</h2></div>' +
+      '<div class="mhelp">Entries are counted on the day they were <b>entered</b> (not the work date), so you can see which department, unit and user enters data regularly. ' +
+      '<span class="act-0">Red</span> = no entry in the period. "Late" = entered 2 or more days after the work date.</div>' +
+      '<form class="fbar" id="ac_f"><label for="ac_a">From</label><input type="date" id="ac_a"><label for="ac_b">To</label><input type="date" id="ac_b">' +
+      '<button type="button" class="chipb" data-q="0">Today</button><button type="button" class="chipb" data-q="6">Last 7 days</button><button type="button" class="chipb" data-q="29">Last 30 days</button>' +
+      '<button class="btn sm" type="submit">Show</button></form><div id="ac_b0"><div class="card empty">Loading…</div></div>';
+    $('#ac_a').value = S.act.from; $('#ac_b').value = S.act.to;
+    $('#ac_f').onsubmit = function (e) { e.preventDefault(); S.act = { from: $('#ac_a').value, to: $('#ac_b').value }; loadActivity(); };
+    $('#ac_f').onclick = function (e) { var q = e.target.getAttribute && e.target.getAttribute('data-q'); if (q == null) return; S.act = { from: dAgo(Number(q)), to: todayStr() }; $('#ac_a').value = S.act.from; $('#ac_b').value = S.act.to; loadActivity(); };
+    loadActivity();
+  }
+  function loadActivity() {
+    return api('activityReport', S.act).then(function (r) {
+      if (S.page !== 'activity') return; var b = $('#ac_b0'); if (!b) return;
+      S.act.from = r.from; S.act.to = r.to;
+      var dn = function (d) { return DEPT[d] || d; }, short = function (d) { return dfmt(d).slice(0, 6); };
+      var h = '';
+      h += r.noData.length ? '<div class="card act-alert"><b>No entries from ' + esc(dfmt(r.from)) + ' to ' + esc(dfmt(r.to)) + ':</b> ' + r.noData.map(function (x) { return '<span class="badge off">' + esc(x) + '</span>'; }).join(' ') + '</div>'
+        : '<div class="card act-ok">Every module has entries in this period.</div>';
+      /* department x unit */
+      h += '<h3 class="sec">Department &amp; unit</h3><div class="hint">Entries in the period per unit; under it the last entry date. Red = nothing entered in this period.</div>' +
+        '<div class="tw act-tw"><table class="act-t" data-all="1"><thead><tr><th>Department</th><th>Module</th>' + r.units.map(function (u) { return '<th class="n">' + esc(u.name) + '</th>'; }).join('') + '<th class="n">Total</th><th class="n">Days with entries</th><th class="n">Late</th></tr></thead><tbody>' +
+        r.modules.map(function (m) {
+          return '<tr><td data-l="Department">' + esc(dn(m.dept)) + '</td><td data-l="Module"><b>' + esc(m.l) + '</b></td>' + m.units.map(function (c, i) {
+            return '<td class="n ' + (c.n ? '' : 'act-0c') + '" data-l="' + esc(r.units[i].name) + '"><b>' + (c.n || 0) + '</b><div class="cellsub">' + (c.last ? esc(short(c.last)) : 'never') + '</div></td>'; }).join('') +
+            '<td class="n" data-l="Total"><b>' + m.total + '</b></td><td class="n ' + (m.daysWith ? '' : 'act-0c') + '" data-l="Days with entries">' + m.daysWith + ' / ' + r.dayCount + '</td><td class="n" data-l="Late">' + (m.late ? '<span class="badge warn">' + m.late + '</span>' : '0') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      /* day by day */
+      h += '<h3 class="sec">Day by day</h3><div class="hint">Entries entered each day (all units).</div><div class="tw act-tw"><table class="act-t act-d" data-all="1"><thead><tr><th>Module</th>' +
+        r.days.map(function (d) { return '<th class="n">' + esc(short(d)) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        r.modules.map(function (m) { return '<tr><td data-l="Module"><b>' + esc(m.l) + '</b><div class="cellsub">' + esc(dn(m.dept)) + '</div></td>' + m.perDay.map(function (n, i) { return '<td class="n ' + (n ? 'act-1c' : 'act-0c') + '" data-l="' + esc(short(r.days[i])) + '">' + (n || '') + '</td>'; }).join('') + '</tr>'; }).join('') +
+        '</tbody></table></div>';
+      /* users */
+      h += '<h3 class="sec">Users</h3><div class="hint">Department users first with no entries, then the longest since their last entry.</div>' +
+        (r.users.length ? '<table><thead><tr><th>User</th><th>Department</th><th>Unit</th><th class="n">Entries</th><th>Last entry</th><th class="n">Days since</th><th>Modules</th></tr></thead><tbody>' +
+        r.users.map(function (u) {
+          return '<tr><td data-l="User"><b>' + esc(u.Name) + '</b><div class="cellsub">' + esc(u.Code) + '</div></td><td data-l="Department">' + esc(u.Depts.split(', ').map(dn).join(', ') || u.Role) + '</td><td data-l="Unit">' + esc(u.Units || '–') + '</td>' +
+            '<td class="n ' + (u.Entries ? '' : 'act-0c') + '" data-l="Entries"><b>' + u.Entries + '</b></td><td data-l="Last entry">' + (u.Last ? esc(dfmt(u.Last)) : '–') + '</td>' +
+            '<td class="n" data-l="Days since">' + (u.DaysSince == null ? '–' : (u.DaysSince >= 2 ? '<span class="badge warn">' + u.DaysSince + '</span>' : u.DaysSince)) + '</td><td data-l="Modules"><span class="cellsub">' + esc(u.Modules || '–') + '</span></td></tr>';
+        }).join('') + '</tbody></table>' : '<div class="card empty">No users.</div>');
+      b.innerHTML = h;
+    }).catch(function (e) { var b = $('#ac_b0'); if (b) b.innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; });
+  }
   /* ---------- Cross-unit moves (plan transfers at final cutting) ---------- */
   function viewXfer(el) {
     S.xf = S.xf || { from: '', to: '' };

@@ -390,3 +390,14 @@ th.rv-c,td.rv-c{width:1%;white-space:nowrap;padding-left:4px}.tf-tg{display:none
 
 .totop{position:fixed;right:16px;bottom:18px;z-index:30;width:44px;height:44px;border-radius:50%;border:0;background:var(--navy);color:#fff;font-size:20px;box-shadow:0 4px 14px rgba(20,30,50,.25);cursor:pointer}
 @media print{.totop,.qnav{display:none!important}}body.mg-print .totop,body.mg-print .qnav{display:none!important}
+
+/* Season Production Status: one A4 landscape page */
+body.sps-print .mg{width:1060px}body.sps-print .sps-page{page:spsland}
+body.sps-print .sps-page .mg-tw{overflow:visible}body.sps-print .sps-page .mg-t td,body.sps-print .sps-page .mg-t th{padding:4px 6px;font-size:10.5px}
+@page spsland{size:A4 landscape;margin:8mm}
+@media print{body.sps-print .sps-page{break-inside:avoid}}
+
+/* User Activity */
+.act-0{color:var(--bad);font-weight:700}.act-alert{border-left:4px solid var(--bad);margin-bottom:12px}.act-ok{border-left:4px solid var(--ok);margin-bottom:12px}
+.act-tw{overflow-x:auto}.act-t{min-width:100%}.act-t td.act-0c{background:#FDECEA;color:var(--bad)}.act-t td.act-1c{background:#E3F2EA;font-weight:700}
+.act-d th,.act-d td{padding:6px 6px;font-size:12px;white-space:nowrap}
