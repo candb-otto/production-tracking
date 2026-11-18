@@ -995,7 +995,7 @@
     if (!rows.length) { $('#ul').innerHTML = '<div class="card empty">No users found</div>'; return; }
     $('#ul').innerHTML = '<table><thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Department</th><th>Unit</th><th>Status</th><th>Last login</th><th></th></tr></thead><tbody>' +
       rows.map(function (u) {
-        return '<tr><td data-l="Code"><b>' + esc(u.Employee_Code) + '</b></td><td data-l="Name">' + esc(u.Employee_Name) + '</td>' +
+        return '<tr><td data-l="Code"><b>' + esc(u.Employee_Code) + '</b></td><td data-l="Name">' + esc(u.Employee_Name) + (u.Daily_Report ? ' <span class="badge ok" title="Gets the Day End Report email every day">Daily report</span>' : '') + '</td>' +
           '<td data-l="Role"><span class="badge">' + esc(ROLE[u.Role] || u.Role) + '</span></td>' +
           '<td data-l="Department">' + esc(deptNames(u.Department) || '-') + '</td><td data-l="Unit">' + esc(unitText(u.Unit_ID, u.Role)) + '</td>' +
           '<td data-l="Status"><span class="badge ' + (u.Active ? 'ok' : 'off') + '">' + (u.Active ? 'Active' : 'Inactive') + '</span></td>' +
@@ -1014,6 +1014,7 @@
 
   function userForm(u) {
     var isNew = !u; u = u || { Role: 'DEPT_USER', Active: true };
+    var dailyCol = (S.users || []).some(function (z) { return z.Daily_Report !== null && z.Daily_Report !== undefined; });
     var roleOpts = Object.keys(ROLE).filter(function (k) { return k !== 'SUPER_ADMIN' || S.user.sa || u.Role === 'SUPER_ADMIN'; }).map(function (k) { return '<option value="' + k + '"' + (u.Role === k ? ' selected' : '') + '>' + ROLE[k] + '</option>'; }).join('');
     var myD = String(u.Department || '').split(',').map(function (x) { return x.trim(); });
     var deptOpts = Object.keys(DEPT).map(function (k) { return '<label class="chk"><input type="checkbox" class="f_d" value="' + k + '"' + (myD.indexOf(k) >= 0 ? ' checked' : '') + '> ' + esc(DEPT[k]) + '</label>'; }).join('');
@@ -1023,6 +1024,7 @@
       '<label>Employee code</label><input id="f_c" value="' + esc(u.Employee_Code || '') + '" required maxlength="20" autocomplete="off">' +
       '<label>Name</label><input id="f_n" value="' + esc(u.Employee_Name || '') + '" required maxlength="60" autocomplete="off">' +
       '<label>Email (optional)</label><input id="f_e" type="email" value="' + esc(u.Email || '') + '" autocomplete="off">' +
+      (dailyCol ? '<label class="chk"><input type="checkbox" id="f_dr"' + (u.Daily_Report ? ' checked' : '') + '> <span>Send the <b>Day End Report</b> to this email every day (their department and units)</span></label>' : '') +
       '<label>Role</label><select id="f_r">' + roleOpts + '</select>' +
       '<div id="f_dw"><label>Department(s)</label><div class="chkbox">' + deptOpts + '</div><div class="hint">Tick every department this user records for. Page-by-page access is set on the User Access page.</div></div>' +
       '<div id="f_uw"><label>Unit(s)</label><div class="chkbox">' + unitOpts + '</div><div class="hint">Tick every unit this user works for, e.g. A1 and A2 for a shared Cutting or Ironing team.</div>' +
@@ -1042,6 +1044,7 @@
           var fields = { Employee_Code: $('#f_c').value, Employee_Name: $('#f_n').value, Email: $('#f_e').value,
             Role: $('#f_r').value, Department: [].slice.call(document.querySelectorAll('.f_d')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }).join(','),
             Unit_ID: [].slice.call(document.querySelectorAll('.f_u')).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }).join(',') };
+          if ($('#f_dr')) fields.Daily_Report = $('#f_dr').checked;
           var call = isNew ? api('createUser', { fields: fields, password: $('#f_p').value })
                            : api('updateUser', { userId: u.User_ID, fields: fields });
           call.then(function () { closeModal(); toast(isNew ? 'User created' : 'User updated', 'ok'); return refreshUsers(); }).catch(fail);
